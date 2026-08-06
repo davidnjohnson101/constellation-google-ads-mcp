@@ -34,6 +34,7 @@ class TestToolsMounting(unittest.IsolatedAsyncioTestCase):
                     "customers": True,
                     "search": True,
                     "metadata": True,
+                    "recommendations": True,
                 }
             }
         )
@@ -48,6 +49,7 @@ class TestToolsMounting(unittest.IsolatedAsyncioTestCase):
         self.assertIn("customers_list_accessible_customers", tool_names)
         self.assertIn("search_search", tool_names)
         self.assertIn("metadata_get_resource_metadata", tool_names)
+        self.assertIn("recommendations_publish_recommendation", tool_names)
 
     @patch("ads_mcp.config.ToolsConfig.load")
     async def test_mounting_disabled_namespaces(self, mock_load):
@@ -59,6 +61,7 @@ class TestToolsMounting(unittest.IsolatedAsyncioTestCase):
                     "customers": True,
                     "search": False,
                     "metadata": False,
+                    "recommendations": False,
                 }
             }
         )

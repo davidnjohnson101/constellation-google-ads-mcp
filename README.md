@@ -17,6 +17,25 @@ to provide several
 - `get_resource_metadata`: Retrieves metadata about a Google Ads API resource type, for example "campaign". This is useful to understand the structure of the data and what fields are available for querying.
 - `list_accessible_customers`: Returns ids of customers directly accessible
   by the user authenticating the call.
+- `publish_recommendation`: Publishes a validated, evidence-backed proposal to
+  the Constellation Google Ads Recommendation Center. This action never writes
+  to Google Ads and never approves or executes a recommendation.
+
+### Recommendation Center publishing
+
+The Constellation fork adds one portal-only write action. It is disabled by
+missing configuration and can publish only for explicitly allowlisted Google
+Ads customer ids. Configure these Cloud Run environment variables:
+
+- `RECOMMENDATION_CENTER_URL`: Fixed HTTPS origin for the Recommendation Center.
+- `RECOMMENDATION_CENTER_INGESTION_KEY`: Secret used by the Center to authenticate ingestion.
+- `RECOMMENDATION_CENTER_SIWC_BYPASS_TOKEN`: Secret used by server-to-server requests to pass the Sites sign-in gate.
+- `RECOMMENDATION_CENTER_ALLOWED_CUSTOMER_IDS`: Comma-separated customer ids authorized for publishing.
+
+The tool is idempotent by recommendation id. A successful response confirms
+`published: true`, the matching recommendation id, and
+`google_ads_changes_made: false`. Failed or ambiguous responses are never
+reported as published.
 
 ### Configuring and Namespacing Tools
 
