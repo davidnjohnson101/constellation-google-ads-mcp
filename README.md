@@ -30,7 +30,8 @@ Ads customer ids. Configure these Cloud Run environment variables:
 - `RECOMMENDATION_CENTER_URL`: Fixed HTTPS origin for the Recommendation Center.
 - `RECOMMENDATION_CENTER_INGESTION_KEY`: Secret used by the Center to authenticate ingestion.
 - `RECOMMENDATION_CENTER_SIWC_BYPASS_TOKEN`: Secret used by server-to-server requests to pass the Sites sign-in gate.
-- `RECOMMENDATION_CENTER_ALLOWED_CUSTOMER_IDS`: Comma-separated customer ids authorized for publishing.
+- `GOOGLE_ADS_LOGIN_CUSTOMER_ID`: Manager customer id used as the trust anchor for recommendation publishing. A requested customer must be an enabled, non-manager account directly or indirectly beneath this MCC.
+- `RECOMMENDATION_CENTER_ALLOWED_CUSTOMER_IDS` (optional): Comma-separated customer ids that further restrict publishing to a pilot subset of the MCC hierarchy. Leave unset to authorize all verified client accounts beneath the MCC.
 
 The tool is idempotent by recommendation id. A successful response confirms
 `published: true`, the matching recommendation id, and

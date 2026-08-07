@@ -12,7 +12,10 @@ from urllib import error, parse, request
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from google.ads.googleads.errors import GoogleAdsException
 from mcp.types import ToolAnnotations
+
+import ads_mcp.utils as utils
 
 recommendations_mcp = FastMCP("recommendations")
 
@@ -52,9 +55,93 @@ def _validate_list(name: str, values: List[str]) -> List[str]:
     ]
 
 
-def _allowed_customer_ids() -> set[str]:
-    raw = _required_env("RECOMMENDATION_CENTER_ALLOWED_CUSTOMER_IDS")
-    return {value.strip() for value in raw.split(",") if value.strip()}
+def _normalize_customer_id(name: str, value: str) -> str:
+    customer_id = value.replace("-", "").strip()
+    if not _CUSTOMER_ID_PATTERN.fullmatch(customer_id):
+        raise ToolError(f"{name} must contain exactly 10 digits.")
+    return customer_id
+
+
+def _allowed_customer_ids() -> set[str] | None:
+    """Returns the optional static restriction layered over MCC access."""
+    raw = os.environ.get(
+        "RECOMMENDATION_CENTER_ALLOWED_CUSTOMER_IDS", ""
+    ).strip()
+    if not raw:
+        return None
+
+    return {
+        _normalize_customer_id(
+            "RECOMMENDATION_CENTER_ALLOWED_CUSTOMER_IDS entry", value
+        )
+        for value in raw.split(",")
+        if value.strip()
+    }
+
+
+def _authorize_customer(customer_id: str) -> None:
+    """Fails closed unless customer_id is an enabled client beneath the MCC."""
+    manager_customer_id = _normalize_customer_id(
+        "GOOGLE_ADS_LOGIN_CUSTOMER_ID",
+        _required_env("GOOGLE_ADS_LOGIN_CUSTOMER_ID"),
+    )
+    if customer_id == manager_customer_id:
+        raise ToolError(
+            "The login manager account cannot receive client recommendations."
+        )
+
+    allowed_customer_ids = _allowed_customer_ids()
+    if (
+        allowed_customer_ids is not None
+        and customer_id not in allowed_customer_ids
+    ):
+        raise ToolError(
+            "This customer id is outside the configured publishing restriction."
+        )
+
+    # CustomerClient contains both direct and indirect descendants of a manager.
+    # Filtering by the exact client id makes this a bounded, read-only proof that
+    # the requested account is currently active beneath the configured MCC.
+    query = f"""
+        SELECT
+          customer_client.id,
+          customer_client.level,
+          customer_client.manager,
+          customer_client.status
+        FROM customer_client
+        WHERE customer_client.id = {customer_id}
+        LIMIT 1
+        PARAMETERS omit_unselected_resource_names=true
+    """
+
+    try:
+        google_ads_service = utils.get_googleads_service("GoogleAdsService")
+        response = google_ads_service.search_stream(
+            customer_id=manager_customer_id, query=query
+        )
+        for batch in response:
+            for row in batch.results:
+                client = row.customer_client
+                status = getattr(client.status, "name", str(client.status))
+                if (
+                    str(client.id) == customer_id
+                    and client.level > 0
+                    and not client.manager
+                    and status == "ENABLED"
+                ):
+                    return
+    except GoogleAdsException as exc:
+        raise ToolError(
+            "Google Ads could not verify this customer beneath the configured MCC."
+        ) from exc
+    except Exception as exc:
+        raise ToolError(
+            "Google Ads customer authorization could not be completed."
+        ) from exc
+
+    raise ToolError(
+        "This customer id is not an enabled client beneath the configured MCC."
+    )
 
 
 def _destination() -> str:
@@ -139,13 +226,8 @@ def publish_recommendation(
             "recommendation_id may contain only uppercase letters, digits, underscores, and hyphens."
         )
 
-    customer_id = customer_id.replace("-", "").strip()
-    if not _CUSTOMER_ID_PATTERN.fullmatch(customer_id):
-        raise ToolError("customer_id must contain exactly 10 digits.")
-    if customer_id not in _allowed_customer_ids():
-        raise ToolError(
-            "This customer id is not authorized for recommendation publishing."
-        )
+    customer_id = _normalize_customer_id("customer_id", customer_id)
+    _authorize_customer(customer_id)
 
     if priority not in _ALLOWED_PRIORITIES:
         raise ToolError("priority must be High, Medium, or Low.")
