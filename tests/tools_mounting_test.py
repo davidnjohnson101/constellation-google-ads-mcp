@@ -50,6 +50,9 @@ class TestToolsMounting(unittest.IsolatedAsyncioTestCase):
         self.assertIn("search_search", tool_names)
         self.assertIn("metadata_get_resource_metadata", tool_names)
         self.assertIn("recommendations_publish_recommendation", tool_names)
+        self.assertIn("recommendations_sync_customer_catalog", tool_names)
+        self.assertIn("recommendations_get_due_enrollments", tool_names)
+        self.assertIn("recommendations_record_enrollment_run", tool_names)
 
     @patch("ads_mcp.config.ToolsConfig.load")
     async def test_mounting_disabled_namespaces(self, mock_load):

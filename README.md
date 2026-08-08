@@ -20,12 +20,19 @@ to provide several
 - `publish_recommendation`: Publishes a validated, evidence-backed proposal to
   the Constellation Google Ads Recommendation Center. This action never writes
   to Google Ads and never approves or executes a recommendation.
+- `sync_customer_catalog`: Reads enabled non-manager descendants of the login
+  MCC and synchronizes them to the Recommendation Center without enrolling any
+  account.
+- `get_due_enrollments`: Returns a bounded portal-managed queue of accounts due
+  for recommendation analysis.
+- `record_enrollment_run`: Records an idempotent scheduler outcome and advances
+  the enrolled account's next eligible run time. It never modifies Google Ads.
 
 ### Recommendation Center publishing
 
-The Constellation fork adds one portal-only write action. It is disabled by
-missing configuration and can publish only for explicitly allowlisted Google
-Ads customer ids. Configure these Cloud Run environment variables:
+The Constellation fork adds portal-only recommendation and enrollment actions.
+They are disabled by missing configuration. Configure these Cloud Run
+environment variables:
 
 - `RECOMMENDATION_CENTER_URL`: Fixed HTTPS origin for the Recommendation Center.
 - `RECOMMENDATION_CENTER_INGESTION_KEY`: Secret used by the Center to authenticate ingestion.

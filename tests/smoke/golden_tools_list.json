@@ -71,6 +71,36 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Returns the next due accounts enrolled for recommendation analysis.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 3,
+            "description": "Bounded number of due accounts to return, from 1 through 10.",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "recommendations_get_due_enrollments",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
         "readOnlyHint": false
       },
       "description": "Publishes one evidence-backed recommendation for human review.\n\nThis action writes only to the Google Ads Recommendation Center. It does\nnot approve the recommendation and cannot modify Google Ads. Use it only\nafter completing a read-only analysis. Report a recommendation as\npublished only when this tool returns ``published: true`` and the matching\nrecommendation id.",
@@ -193,6 +223,87 @@
         "type": "object"
       },
       "name": "recommendations_publish_recommendation",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Records one enrolled account analysis result in the portal.\n\nThis action updates scheduling history only. It does not publish a\nrecommendation, approve a recommendation, or modify Google Ads.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "completed_at": {
+            "description": "ISO-8601 completion timestamp.",
+            "type": "string"
+          },
+          "customer_id": {
+            "description": "Ten-digit Google Ads customer id without punctuation.",
+            "type": "string"
+          },
+          "note": {
+            "description": "Concise evidence or failure summary for the run history.",
+            "type": "string"
+          },
+          "recommendation_count": {
+            "description": "Number of confirmed recommendations published.",
+            "type": "integer"
+          },
+          "run_id": {
+            "description": "Stable idempotency key such as RUN-20260808-4357201747.",
+            "type": "string"
+          },
+          "status": {
+            "description": "succeeded, failed, or no_recommendation.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "customer_id",
+          "status",
+          "recommendation_count",
+          "note",
+          "completed_at"
+        ],
+        "type": "object"
+      },
+      "name": "recommendations_record_enrollment_run",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Synchronizes eligible MCC client accounts to the Recommendation Center.\n\nThis action performs one read-only Google Ads hierarchy query and updates\nonly the portal's account catalog. It never enrolls an account, changes an\nexisting enrollment, or modifies Google Ads.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "name": "recommendations_sync_customer_catalog",
       "outputSchema": {
         "additionalProperties": true,
         "type": "object"
