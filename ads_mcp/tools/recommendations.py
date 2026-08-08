@@ -868,27 +868,9 @@ def publish_recommendation(
 
     publication = result.get("publication")
     if publication is None:
-        if (
-            saved.get("id") != recommendation_id
-            or ("published" in result and result.get("published") is not True)
-            or result.get("googleAdsChangesMade", False) is not False
-        ):
-            raise ToolError(
-                "Recommendation Center confirmed a different recommendation id."
-            )
-        return {
-            "published": True,
-            "accepted": True,
-            "counts_as_new_recommendation": True,
-            "publication_outcome": "created",
-            "recommendation_id": recommendation_id,
-            "submitted_recommendation_id": recommendation_id,
-            "duplicate": False,
-            "suppression_reason": None,
-            "status": saved.get("status", "pending_review"),
-            "destination": "Google Ads Recommendation Center",
-            "google_ads_changes_made": False,
-        }
+        raise ToolError(
+            "Recommendation Center did not return the required publication outcome."
+        )
 
     if not isinstance(publication, dict):
         raise ToolError(
