@@ -419,6 +419,14 @@ class RecommendationPublishingTest(unittest.TestCase):
                 {"duplicate": True}
             ),
             "missing outcome envelope": lambda body: body.update({"publication": {}}),
+            "blank suppression reason": lambda body: body["publication"].update(
+                {
+                    "outcome": "suppressed",
+                    "duplicate": True,
+                    "countsAsNewRecommendation": False,
+                    "suppressionReason": "   ",
+                }
+            ),
         }
 
         for label, mutate in mutations.items():
