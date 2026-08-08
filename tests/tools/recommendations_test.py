@@ -217,16 +217,11 @@ class RecommendationPublishingTest(unittest.TestCase):
     )
     @patch("ads_mcp.tools.recommendations.request.urlopen")
     @patch("ads_mcp.tools.recommendations.utils.get_googleads_service")
-    def test_accepts_legacy_publication_contract(self, mock_get_service, mock_urlopen):
+    def test_accepts_legacy_input_contract_with_v14_confirmation(
+        self, mock_get_service, mock_urlopen
+    ):
         mock_get_service.return_value.search_stream.return_value = _hierarchy_response()
-        mock_urlopen.return_value = _Response(
-            {
-                "recommendation": {
-                    "id": "REC-20260807-BMW-001",
-                    "status": "pending_review",
-                }
-            }
-        )
+        mock_urlopen.return_value = _Response()
         legacy_arguments = {
             key: value
             for key, value in VALID_ARGUMENTS.items()
@@ -247,6 +242,36 @@ class RecommendationPublishingTest(unittest.TestCase):
         payload = json.loads(mock_urlopen.call_args.args[0].data.decode("utf-8"))
         self.assertNotIn("identity", payload)
         self.assertNotIn("runId", payload)
+
+    @patch.dict(
+        "os.environ",
+        {
+            "RECOMMENDATION_CENTER_URL": "https://recommendations.example",
+            "RECOMMENDATION_CENTER_INGESTION_KEY": "ingestion-secret",
+            "RECOMMENDATION_CENTER_SIWC_BYPASS_TOKEN": "sites-secret",
+            "GOOGLE_ADS_LOGIN_CUSTOMER_ID": "4599605095",
+        },
+        clear=True,
+    )
+    @patch("ads_mcp.tools.recommendations.request.urlopen")
+    @patch("ads_mcp.tools.recommendations.utils.get_googleads_service")
+    def test_rejects_ambiguous_response_without_publication_outcome(
+        self, mock_get_service, mock_urlopen
+    ):
+        mock_get_service.return_value.search_stream.return_value = _hierarchy_response()
+        mock_urlopen.return_value = _Response(
+            {
+                "published": True,
+                "googleAdsChangesMade": False,
+                "recommendation": {
+                    "id": "REC-20260807-BMW-001",
+                    "status": "pending_review",
+                },
+            }
+        )
+
+        with self.assertRaisesRegex(ToolError, "required publication outcome"):
+            publish_recommendation(**VALID_ARGUMENTS)
 
     @patch.dict(
         "os.environ",
