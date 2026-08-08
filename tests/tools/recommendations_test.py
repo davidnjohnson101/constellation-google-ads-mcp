@@ -9,6 +9,7 @@ from fastmcp.exceptions import ToolError
 
 from ads_mcp.tools.recommendations import (
     get_due_enrollments,
+    publish_account_scorecard,
     publish_recommendation,
     record_enrollment_run,
     sync_customer_catalog,
@@ -35,6 +36,32 @@ VALID_ARGUMENTS = {
     "rollback_instructions": "Reassign both campaigns to Macro + VDP.",
     "evidence_captured_at": "2026-08-07T06:00:00-04:00",
 }
+
+SCORECARD_ARGUMENTS = {
+    "customer_id": "4357201747",
+    "data_through_date": "2026-08-07",
+    "captured_at": "2026-08-08T06:00:00-04:00",
+    "periods": [
+        {
+            "key": key,
+            "start_date": "2026-08-01",
+            "end_date": "2026-08-07",
+            "cost_micros": 1000000,
+            "impressions": 1000,
+            "clicks": 100,
+            "conversions": 10.5,
+        }
+        for key in (
+            "mtd",
+            "yesterday",
+            "last_7_days",
+            "last_month",
+            "two_months_ago",
+            "mtd_last_year",
+        )
+    ],
+}
+
 
 
 class _Response:
@@ -246,6 +273,79 @@ class RecommendationPublishingTest(unittest.TestCase):
     def test_fails_closed_when_configuration_is_missing(self):
         with self.assertRaisesRegex(ToolError, "is missing"):
             publish_recommendation(**VALID_ARGUMENTS)
+
+
+class AccountScorecardPublishingTest(unittest.TestCase):
+    portal_environment = {
+        "RECOMMENDATION_CENTER_URL": "https://recommendations.example",
+        "RECOMMENDATION_CENTER_INGESTION_KEY": "ingestion-secret",
+        "RECOMMENDATION_CENTER_SIWC_BYPASS_TOKEN": "sites-secret",
+        "GOOGLE_ADS_LOGIN_CUSTOMER_ID": "4599605095",
+    }
+
+    @patch.dict("os.environ", portal_environment, clear=True)
+    @patch("ads_mcp.tools.recommendations.request.urlopen")
+    @patch("ads_mcp.tools.recommendations.utils.get_googleads_service")
+    def test_replaces_portal_snapshot_without_ads_write(
+        self, mock_get_service, mock_urlopen
+    ):
+        mock_get_service.return_value.search_stream.return_value = (
+            _hierarchy_response()
+        )
+        mock_urlopen.return_value = _Response(
+            {
+                "published": True,
+                "customerId": "4357201747",
+                "replacedPreviousSnapshot": True,
+            },
+            status=200,
+        )
+
+        result = publish_account_scorecard(**SCORECARD_ARGUMENTS)
+
+        self.assertTrue(result["published"])
+        self.assertTrue(result["replaced_previous_snapshot"])
+        self.assertFalse(result["google_ads_changes_made"])
+        outgoing = mock_urlopen.call_args.args[0]
+        self.assertEqual(
+            outgoing.full_url,
+            "https://recommendations.example/api/accounts/4357201747/scorecard",
+        )
+        payload = json.loads(outgoing.data.decode("utf-8"))
+        self.assertEqual(payload["dataThroughDate"], "2026-08-07")
+        self.assertEqual(len(payload["periods"]), 6)
+        self.assertEqual(payload["periods"][0]["costMicros"], 1000000)
+        self.assertEqual(payload["periods"][0]["conversions"], 10.5)
+
+    @patch.dict("os.environ", portal_environment, clear=True)
+    @patch("ads_mcp.tools.recommendations.request.urlopen")
+    @patch("ads_mcp.tools.recommendations.utils.get_googleads_service")
+    def test_rejects_incomplete_or_invalid_snapshot(
+        self, mock_get_service, mock_urlopen
+    ):
+        mock_get_service.return_value.search_stream.return_value = (
+            _hierarchy_response()
+        )
+        incomplete = {
+            **SCORECARD_ARGUMENTS,
+            "periods": SCORECARD_ARGUMENTS["periods"][:-1],
+        }
+        with self.assertRaisesRegex(ToolError, "six required"):
+            publish_account_scorecard(**incomplete)
+
+        invalid = {
+            **SCORECARD_ARGUMENTS,
+            "periods": [
+                {**period, "cost_micros": -1}
+                if period["key"] == "mtd"
+                else period
+                for period in SCORECARD_ARGUMENTS["periods"]
+            ],
+        }
+        with self.assertRaisesRegex(ToolError, "non-negative integer"):
+            publish_account_scorecard(**invalid)
+        mock_urlopen.assert_not_called()
+
 
 
 class EnrollmentToolsTest(unittest.TestCase):
