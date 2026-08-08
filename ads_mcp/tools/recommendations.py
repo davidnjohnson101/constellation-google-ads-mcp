@@ -202,7 +202,7 @@ def _validate_analysis_coverage(
     if not isinstance(coverage, list) or len(coverage) > len(_COVERAGE_AREA_LABELS):
         raise ToolError("coverage must contain no more than 10 analysis areas.")
 
-    normalized = []
+    normalized = {}
     seen = set()
     for item in coverage:
         if not isinstance(item, dict):
@@ -223,20 +223,18 @@ def _validate_analysis_coverage(
                 "coverage status must be reviewed, recommendation_found, "
                 "not_applicable, or unable_to_verify."
             )
-        normalized.append(
-            {
-                "area": _COVERAGE_AREA_LABELS[area],
-                "status": coverage_status,
-                "note": _validate_text("coverage note", item.get("note"), 500),
-            }
-        )
+        normalized[area] = {
+            "area": _COVERAGE_AREA_LABELS[area],
+            "status": coverage_status,
+            "note": _validate_text("coverage note", item.get("note"), 500),
+        }
 
     if require_complete and seen != set(_COVERAGE_AREA_LABELS):
         missing = sorted(set(_COVERAGE_AREA_LABELS) - seen)
         raise ToolError(
             "coverage must report all 10 analysis areas; missing: " + ", ".join(missing)
         )
-    return normalized
+    return [normalized[area] for area in _COVERAGE_AREA_LABELS if area in normalized]
 
 
 def _validate_scorecard_periods(
@@ -582,7 +580,7 @@ def record_enrollment_run(
         run_id: Stable idempotency key such as RUN-20260808-4357201747.
         customer_id: Ten-digit Google Ads customer id without punctuation.
         status: succeeded, failed, or no_recommendation.
-        recommendation_count: Number of confirmed recommendations published.
+        recommendation_count: Number of confirmed new or reopened review cards.
         note: Concise evidence or failure summary for the run history.
         completed_at: ISO-8601 completion timestamp.
         data_through_date: Most recent complete account-local day, YYYY-MM-DD.
