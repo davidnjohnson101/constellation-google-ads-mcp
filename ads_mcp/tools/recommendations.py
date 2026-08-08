@@ -917,7 +917,10 @@ def publish_recommendation(
         or not saved_status.strip()
         or (
             outcome == "suppressed"
-            and (not isinstance(suppression_reason, str) or not suppression_reason)
+            and (
+                not isinstance(suppression_reason, str)
+                or not suppression_reason.strip()
+            )
         )
     ):
         raise ToolError(
