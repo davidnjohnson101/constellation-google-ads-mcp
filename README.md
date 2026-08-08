@@ -40,10 +40,24 @@ environment variables:
 - `GOOGLE_ADS_LOGIN_CUSTOMER_ID`: Manager customer id used as the trust anchor for recommendation publishing. A requested customer must be an enabled, non-manager account directly or indirectly beneath this MCC.
 - `RECOMMENDATION_CENTER_ALLOWED_CUSTOMER_IDS` (optional): Comma-separated customer ids that further restrict publishing to a pilot subset of the MCC hierarchy. Leave unset to authorize all verified client accounts beneath the MCC.
 
-The tool is idempotent by recommendation id. A successful response confirms
-`published: true`, the matching recommendation id, and
-`google_ads_changes_made: false`. Failed or ambiguous responses are never
-reported as published.
+Each publication keeps its submitted recommendation id for retry compatibility
+and can also include a stable semantic identity: rule, affected resources,
+observed condition, and proposed target state. The Recommendation Center uses
+that identity to return one canonical recommendation across analysis runs,
+refresh an unresolved item, reopen a later regression, or suppress a lifecycle
+duplicate. A successful ingestion confirms `published: true`, both submitted
+and canonical ids, an explicit publication outcome, and
+`google_ads_changes_made: false`. Only
+`counts_as_new_recommendation: true` contributes to
+`record_enrollment_run.recommendation_count`; refreshed and suppressed items do
+not create another review card.
+
+Completed enrollment runs also report the most recent complete account-local
+date and evidence notes for all ten required review areas: conversion tracking,
+budget and pacing, bidding, delivery, campaign structure, ads and assets,
+targeting and traffic quality, search terms, landing-page signals, and recent
+changes. Failed or ambiguous responses are never reported as published or
+recorded.
 
 ### Configuring and Namespacing Tools
 
