@@ -7,7 +7,12 @@ from unittest.mock import patch
 
 from fastmcp.exceptions import ToolError
 
-from ads_mcp.tools.recommendations import publish_recommendation
+from ads_mcp.tools.recommendations import (
+    get_due_enrollments,
+    publish_recommendation,
+    record_enrollment_run,
+    sync_customer_catalog,
+)
 
 VALID_ARGUMENTS = {
     "recommendation_id": "REC-20260807-BMW-001",
@@ -33,7 +38,14 @@ VALID_ARGUMENTS = {
 
 
 class _Response:
-    status = 201
+    def __init__(self, body=None, status=201):
+        self.status = status
+        self.body = body or {
+            "recommendation": {
+                "id": "REC-20260807-BMW-001",
+                "status": "pending_review",
+            }
+        }
 
     def __enter__(self):
         return self
@@ -42,24 +54,26 @@ class _Response:
         return None
 
     def read(self):
-        return json.dumps(
-            {
-                "recommendation": {
-                    "id": "REC-20260807-BMW-001",
-                    "status": "pending_review",
-                }
-            }
-        ).encode("utf-8")
+        return json.dumps(self.body).encode("utf-8")
 
 
 def _hierarchy_response(
-    customer_id="4357201747", level=1, manager=False, status="ENABLED"
+    customer_id="4357201747",
+    level=1,
+    manager=False,
+    status="ENABLED",
+    descriptive_name="BMW of Morristown",
+    currency_code="USD",
+    time_zone="America/New_York",
 ):
     client = SimpleNamespace(
         id=int(customer_id),
         level=level,
         manager=manager,
         status=SimpleNamespace(name=status),
+        descriptive_name=descriptive_name,
+        currency_code=currency_code,
+        time_zone=time_zone,
     )
     row = SimpleNamespace(customer_client=client)
     return [SimpleNamespace(results=[row])]
@@ -232,3 +246,154 @@ class RecommendationPublishingTest(unittest.TestCase):
     def test_fails_closed_when_configuration_is_missing(self):
         with self.assertRaisesRegex(ToolError, "is missing"):
             publish_recommendation(**VALID_ARGUMENTS)
+
+
+class EnrollmentToolsTest(unittest.TestCase):
+    portal_environment = {
+        "RECOMMENDATION_CENTER_URL": "https://recommendations.example",
+        "RECOMMENDATION_CENTER_INGESTION_KEY": "ingestion-secret",
+        "RECOMMENDATION_CENTER_SIWC_BYPASS_TOKEN": "sites-secret",
+        "GOOGLE_ADS_LOGIN_CUSTOMER_ID": "4599605095",
+    }
+
+    @patch.dict("os.environ", portal_environment, clear=True)
+    @patch("ads_mcp.tools.recommendations.request.urlopen")
+    @patch("ads_mcp.tools.recommendations.utils.get_googleads_service")
+    def test_syncs_enabled_client_descendants_without_enrolling(
+        self, mock_get_service, mock_urlopen
+    ):
+        direct = _hierarchy_response()[0].results[0]
+        nested = _hierarchy_response(
+            customer_id="1697214266",
+            level=3,
+            descriptive_name="Nested Client",
+        )[0].results[0]
+        manager = _hierarchy_response(
+            customer_id="2660187856", level=1, manager=True
+        )[0].results[0]
+        mock_get_service.return_value.search_stream.return_value = [
+            SimpleNamespace(results=[direct, nested, manager])
+        ]
+        mock_urlopen.return_value = _Response(
+            {"synced": 2, "syncedAt": "2026-08-08T02:00:00Z"}
+        )
+
+        result = sync_customer_catalog()
+
+        self.assertEqual(result["synced"], 2)
+        self.assertFalse(result["enrollments_changed"])
+        self.assertFalse(result["google_ads_changes_made"])
+        search_call = mock_get_service.return_value.search_stream.call_args
+        self.assertEqual(search_call.kwargs["customer_id"], "4599605095")
+        outgoing = mock_urlopen.call_args.args[0]
+        self.assertEqual(
+            outgoing.full_url,
+            "https://recommendations.example/api/accounts/catalog",
+        )
+        payload = json.loads(outgoing.data.decode("utf-8"))
+        self.assertEqual(
+            [account["customerId"] for account in payload["accounts"]],
+            ["4357201747", "1697214266"],
+        )
+
+    @patch.dict("os.environ", portal_environment, clear=True)
+    @patch("ads_mcp.tools.recommendations.request.urlopen")
+    @patch("ads_mcp.tools.recommendations.utils.get_googleads_service")
+    def test_sync_fails_closed_when_ads_lookup_errors(
+        self, mock_get_service, mock_urlopen
+    ):
+        mock_get_service.return_value.search_stream.side_effect = RuntimeError(
+            "unavailable"
+        )
+
+        with self.assertRaisesRegex(ToolError, "could not be completed"):
+            sync_customer_catalog()
+        mock_urlopen.assert_not_called()
+
+    @patch.dict("os.environ", portal_environment, clear=True)
+    @patch("ads_mcp.tools.recommendations.request.urlopen")
+    def test_gets_bounded_due_enrollment_queue(self, mock_urlopen):
+        accounts = [{"customerId": "4357201747", "cadence": "daily"}]
+        mock_urlopen.return_value = _Response(
+            {
+                "accounts": accounts,
+                "checkedAt": "2026-08-08T02:00:00Z",
+            },
+            status=200,
+        )
+
+        result = get_due_enrollments(limit=4)
+
+        self.assertEqual(result["accounts"], accounts)
+        self.assertFalse(result["google_ads_changes_made"])
+        outgoing = mock_urlopen.call_args.args[0]
+        self.assertEqual(
+            outgoing.full_url,
+            "https://recommendations.example/api/accounts/due?limit=4",
+        )
+        self.assertEqual(outgoing.method, "GET")
+        self.assertIsNone(outgoing.data)
+
+    def test_rejects_invalid_due_queue_limit(self):
+        for invalid in (0, 11, True, 1.5):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(ToolError, "integer"):
+                    get_due_enrollments(limit=invalid)
+
+    @patch.dict("os.environ", portal_environment, clear=True)
+    @patch("ads_mcp.tools.recommendations.request.urlopen")
+    def test_records_idempotent_enrollment_run(self, mock_urlopen):
+        mock_urlopen.return_value = _Response(
+            {
+                "recorded": True,
+                "duplicate": False,
+                "nextRunAt": "2026-08-09T10:00:00Z",
+            }
+        )
+
+        result = record_enrollment_run(
+            run_id="RUN-20260808-4357201747",
+            customer_id="435-720-1747",
+            status="succeeded",
+            recommendation_count=1,
+            note="One recommendation published for review.",
+            completed_at="2026-08-08T10:00:00Z",
+        )
+
+        self.assertTrue(result["recorded"])
+        self.assertFalse(result["duplicate"])
+        self.assertFalse(result["google_ads_changes_made"])
+        outgoing = mock_urlopen.call_args.args[0]
+        payload = json.loads(outgoing.data.decode("utf-8"))
+        self.assertEqual(payload["runId"], "RUN-20260808-4357201747")
+        self.assertEqual(payload["customerId"], "4357201747")
+        self.assertEqual(outgoing.method, "POST")
+
+    def test_rejects_invalid_enrollment_run_arguments(self):
+        with self.assertRaisesRegex(ToolError, "run_id"):
+            record_enrollment_run(
+                "bad id",
+                "4357201747",
+                "succeeded",
+                1,
+                "note",
+                "2026-08-08T10:00:00Z",
+            )
+        with self.assertRaisesRegex(ToolError, "status"):
+            record_enrollment_run(
+                "RUN-20260808-4357201747",
+                "4357201747",
+                "pending",
+                1,
+                "note",
+                "2026-08-08T10:00:00Z",
+            )
+        with self.assertRaisesRegex(ToolError, "recommendation_count"):
+            record_enrollment_run(
+                "RUN-20260808-4357201747",
+                "4357201747",
+                "succeeded",
+                -1,
+                "note",
+                "2026-08-08T10:00:00Z",
+            )

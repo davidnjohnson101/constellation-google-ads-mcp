@@ -145,6 +145,10 @@ def _authorize_customer(customer_id: str) -> None:
 
 
 def _destination() -> str:
+    return _portal_url("/api/recommendations")
+
+
+def _portal_url(path: str, query: Dict[str, Any] | None = None) -> str:
     base_url = _required_env("RECOMMENDATION_CENTER_URL").rstrip("/")
     parsed = parse.urlparse(base_url)
     if (
@@ -157,7 +161,245 @@ def _destination() -> str:
         raise ToolError(
             "RECOMMENDATION_CENTER_URL must be an HTTPS origin without query parameters."
         )
-    return f"{base_url}/api/recommendations"
+    url = f"{base_url}{path}"
+    if query:
+        url = f"{url}?{parse.urlencode(query)}"
+    return url
+
+
+def _portal_request(
+    method: str,
+    path: str,
+    payload: Dict[str, Any] | None = None,
+    query: Dict[str, Any] | None = None,
+) -> tuple[int, Dict[str, Any]]:
+    headers = {
+        "Authorization": f"Bearer {_required_env('RECOMMENDATION_CENTER_INGESTION_KEY')}",
+        "OAI-Sites-Authorization": f"Bearer {_required_env('RECOMMENDATION_CENTER_SIWC_BYPASS_TOKEN')}",
+        "User-Agent": "constellation-google-ads-mcp/1.0",
+    }
+    data = None
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(payload).encode("utf-8")
+    http_request = request.Request(
+        _portal_url(path, query), data=data, headers=headers, method=method
+    )
+    try:
+        with request.urlopen(http_request, timeout=30) as response:
+            status = response.status
+            response_body = response.read().decode("utf-8")
+    except error.HTTPError as exc:
+        raise ToolError(
+            f"Recommendation Center rejected the request with HTTP {exc.code}."
+        ) from exc
+    except error.URLError as exc:
+        raise ToolError("Recommendation Center could not be reached.") from exc
+
+    try:
+        result = json.loads(response_body)
+    except json.JSONDecodeError as exc:
+        raise ToolError(
+            "Recommendation Center did not return a valid response."
+        ) from exc
+    if not isinstance(result, dict):
+        raise ToolError("Recommendation Center returned an invalid response.")
+    return status, result
+
+
+@recommendations_mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+def sync_customer_catalog() -> Dict[str, Any]:
+    """Synchronizes eligible MCC client accounts to the Recommendation Center.
+
+    This action performs one read-only Google Ads hierarchy query and updates
+    only the portal's account catalog. It never enrolls an account, changes an
+    existing enrollment, or modifies Google Ads.
+    """
+    manager_customer_id = _normalize_customer_id(
+        "GOOGLE_ADS_LOGIN_CUSTOMER_ID",
+        _required_env("GOOGLE_ADS_LOGIN_CUSTOMER_ID"),
+    )
+    query = """
+        SELECT
+          customer_client.id,
+          customer_client.descriptive_name,
+          customer_client.level,
+          customer_client.manager,
+          customer_client.status,
+          customer_client.currency_code,
+          customer_client.time_zone
+        FROM customer_client
+        WHERE customer_client.level > 0
+          AND customer_client.manager = FALSE
+          AND customer_client.status = ENABLED
+        PARAMETERS omit_unselected_resource_names=true
+    """
+    accounts = []
+    try:
+        google_ads_service = utils.get_googleads_service("GoogleAdsService")
+        response = google_ads_service.search_stream(
+            customer_id=manager_customer_id, query=query
+        )
+        for batch in response:
+            for row in batch.results:
+                client = row.customer_client
+                status = getattr(client.status, "name", str(client.status))
+                if client.level <= 0 or client.manager or status != "ENABLED":
+                    continue
+                accounts.append(
+                    {
+                        "customerId": str(client.id),
+                        "descriptiveName": client.descriptive_name
+                        or f"Customer {client.id}",
+                        "level": client.level,
+                        "status": status,
+                        "currencyCode": client.currency_code or None,
+                        "timeZone": client.time_zone or None,
+                    }
+                )
+    except GoogleAdsException as exc:
+        raise ToolError(
+            "Google Ads could not return the configured MCC hierarchy."
+        ) from exc
+    except Exception as exc:
+        raise ToolError(
+            "Google Ads account catalog synchronization could not be completed."
+        ) from exc
+
+    if not accounts:
+        raise ToolError(
+            "No eligible client accounts were found beneath the MCC."
+        )
+    status, result = _portal_request(
+        "POST", "/api/accounts/catalog", {"accounts": accounts}
+    )
+    if status not in (200, 201) or result.get("synced") != len(accounts):
+        raise ToolError(
+            "Recommendation Center did not confirm the complete account catalog."
+        )
+    return {
+        "synced": len(accounts),
+        "synced_at": result.get("syncedAt"),
+        "manager_customer_id": manager_customer_id,
+        "google_ads_changes_made": False,
+        "enrollments_changed": False,
+    }
+
+
+@recommendations_mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+def get_due_enrollments(limit: int = 3) -> Dict[str, Any]:
+    """Returns the next due accounts enrolled for recommendation analysis.
+
+    Args:
+        limit: Bounded number of due accounts to return, from 1 through 10.
+    """
+    if (
+        isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or not 1 <= limit <= 10
+    ):
+        raise ToolError("limit must be an integer from 1 through 10.")
+    status, result = _portal_request(
+        "GET", "/api/accounts/due", query={"limit": limit}
+    )
+    accounts = result.get("accounts")
+    if status != 200 or not isinstance(accounts, list):
+        raise ToolError(
+            "Recommendation Center did not return a valid enrollment queue."
+        )
+    return {
+        "accounts": accounts,
+        "checked_at": result.get("checkedAt"),
+        "limit": limit,
+        "google_ads_changes_made": False,
+    }
+
+
+@recommendations_mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+def record_enrollment_run(
+    run_id: str,
+    customer_id: str,
+    status: str,
+    recommendation_count: int,
+    note: str,
+    completed_at: str,
+) -> Dict[str, Any]:
+    """Records one enrolled account analysis result in the portal.
+
+    This action updates scheduling history only. It does not publish a
+    recommendation, approve a recommendation, or modify Google Ads.
+
+    Args:
+        run_id: Stable idempotency key such as RUN-20260808-4357201747.
+        customer_id: Ten-digit Google Ads customer id without punctuation.
+        status: succeeded, failed, or no_recommendation.
+        recommendation_count: Number of confirmed recommendations published.
+        note: Concise evidence or failure summary for the run history.
+        completed_at: ISO-8601 completion timestamp.
+    """
+    run_id = _validate_text("run_id", run_id, 100)
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9_-]{5,99}", run_id):
+        raise ToolError(
+            "run_id may contain only uppercase letters, digits, underscores, and hyphens."
+        )
+    customer_id = _normalize_customer_id("customer_id", customer_id)
+    if status not in {"succeeded", "failed", "no_recommendation"}:
+        raise ToolError(
+            "status must be succeeded, failed, or no_recommendation."
+        )
+    if (
+        isinstance(recommendation_count, bool)
+        or not isinstance(recommendation_count, int)
+        or not 0 <= recommendation_count <= 100
+    ):
+        raise ToolError(
+            "recommendation_count must be an integer from 0 through 100."
+        )
+    payload = {
+        "runId": run_id,
+        "customerId": customer_id,
+        "status": status,
+        "recommendationCount": recommendation_count,
+        "note": _validate_text("note", note, 1_000),
+        "completedAt": _validate_text("completed_at", completed_at, 64),
+    }
+    response_status, result = _portal_request(
+        "POST", "/api/accounts/runs", payload
+    )
+    if response_status not in (200, 201) or result.get("recorded") is not True:
+        raise ToolError(
+            "Recommendation Center did not confirm the enrollment run."
+        )
+    return {
+        "recorded": True,
+        "duplicate": bool(result.get("duplicate", False)),
+        "run_id": run_id,
+        "customer_id": customer_id,
+        "status": status,
+        "next_run_at": result.get("nextRunAt"),
+        "google_ads_changes_made": False,
+    }
 
 
 @recommendations_mcp.tool(
@@ -268,39 +510,15 @@ def publish_recommendation(
         ),
     }
 
-    headers = {
-        "Authorization": f"Bearer {_required_env('RECOMMENDATION_CENTER_INGESTION_KEY')}",
-        "Content-Type": "application/json",
-        "OAI-Sites-Authorization": f"Bearer {_required_env('RECOMMENDATION_CENTER_SIWC_BYPASS_TOKEN')}",
-        "User-Agent": "constellation-google-ads-mcp/1.0",
-    }
-    http_request = request.Request(
-        _destination(),
-        data=json.dumps(payload).encode("utf-8"),
-        headers=headers,
-        method="POST",
-    )
-
-    try:
-        with request.urlopen(http_request, timeout=15) as response:
-            status = response.status
-            response_body = response.read().decode("utf-8")
-    except error.HTTPError as exc:
-        raise ToolError(
-            f"Recommendation Center rejected the publication request with HTTP {exc.code}."
-        ) from exc
-    except error.URLError as exc:
-        raise ToolError("Recommendation Center could not be reached.") from exc
-
+    status, result = _portal_request("POST", "/api/recommendations", payload)
     if status not in (200, 201):
         raise ToolError(
             f"Recommendation Center returned an unexpected HTTP {status} response."
         )
 
     try:
-        result = json.loads(response_body)
         saved = result["recommendation"]
-    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+    except (KeyError, TypeError) as exc:
         raise ToolError(
             "Recommendation Center did not return a valid publication confirmation."
         ) from exc
