@@ -6,6 +6,7 @@ one fixed Recommendation Center configured by the service operator.
 
 import json
 import os
+from datetime import date, datetime
 import re
 from typing import Any, Dict, List
 from urllib import error, parse, request
@@ -24,6 +25,14 @@ _CUSTOMER_ID_PATTERN = re.compile(r"^\d{10}$")
 _ALLOWED_PRIORITIES = {"High", "Medium", "Low"}
 _MAX_LIST_ITEMS = 12
 _MAX_ITEM_LENGTH = 1_000
+_SCORECARD_PERIOD_KEYS = {
+    "mtd",
+    "yesterday",
+    "last_7_days",
+    "last_month",
+    "two_months_ago",
+    "mtd_last_year",
+}
 
 
 def _required_env(name: str) -> str:
@@ -53,6 +62,78 @@ def _validate_list(name: str, values: List[str]) -> List[str]:
         _validate_text(f"{name} item", value, _MAX_ITEM_LENGTH)
         for value in values
     ]
+
+
+def _validate_iso_date(name: str, value: str) -> str:
+    cleaned = _validate_text(name, value, 10)
+    try:
+        date.fromisoformat(cleaned)
+    except ValueError as exc:
+        raise ToolError(f"{name} must be a valid YYYY-MM-DD date.") from exc
+    return cleaned
+
+
+def _validate_scorecard_periods(
+    periods: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    if not isinstance(periods, list) or len(periods) != len(
+        _SCORECARD_PERIOD_KEYS
+    ):
+        raise ToolError(
+            "periods must contain exactly the six required scorecard windows."
+        )
+
+    normalized = []
+    seen = set()
+    for period in periods:
+        if not isinstance(period, dict):
+            raise ToolError("Each scorecard period must be an object.")
+        key = period.get("key")
+        if key not in _SCORECARD_PERIOD_KEYS or key in seen:
+            raise ToolError(
+                "Scorecard period keys must be unique and use the required windows."
+            )
+        seen.add(key)
+        start_date = _validate_iso_date(
+            f"{key} start_date", period.get("start_date")
+        )
+        end_date = _validate_iso_date(
+            f"{key} end_date", period.get("end_date")
+        )
+        if start_date > end_date:
+            raise ToolError(f"{key} start_date cannot follow end_date.")
+
+        numeric = {}
+        for field in ("cost_micros", "impressions", "clicks"):
+            value = period.get(field)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ToolError(f"{key} {field} must be a non-negative integer.")
+            numeric[field] = value
+        conversions = period.get("conversions")
+        if (
+            isinstance(conversions, bool)
+            or not isinstance(conversions, (int, float))
+            or conversions < 0
+        ):
+            raise ToolError(
+                f"{key} conversions must be a non-negative number."
+            )
+
+        normalized.append(
+            {
+                "key": key,
+                "startDate": start_date,
+                "endDate": end_date,
+                "costMicros": numeric["cost_micros"],
+                "impressions": numeric["impressions"],
+                "clicks": numeric["clicks"],
+                "conversions": float(conversions),
+            }
+        )
+
+    if seen != _SCORECARD_PERIOD_KEYS:
+        raise ToolError("All six required scorecard period keys are required.")
+    return normalized
 
 
 def _normalize_customer_id(name: str, value: str) -> str:
@@ -398,6 +479,75 @@ def record_enrollment_run(
         "customer_id": customer_id,
         "status": status,
         "next_run_at": result.get("nextRunAt"),
+        "google_ads_changes_made": False,
+    }
+
+
+@recommendations_mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+def publish_account_scorecard(
+    customer_id: str,
+    data_through_date: str,
+    captured_at: str,
+    periods: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Replaces one enrolled account's portal scorecard snapshot.
+
+    This action writes only the latest read-only performance snapshot to the
+    Recommendation Center. It intentionally replaces the prior snapshot and
+    does not retain daily history. It never creates or changes anything in
+    Google Ads.
+
+    Args:
+        customer_id: Ten-digit Google Ads customer id without punctuation.
+        data_through_date: Most recent complete account-local day, YYYY-MM-DD.
+        captured_at: ISO-8601 timestamp when the read-only metrics were captured.
+        periods: Exactly six objects keyed mtd, yesterday, last_7_days,
+            last_month, two_months_ago, and mtd_last_year. Each object requires
+            start_date, end_date, cost_micros, impressions, clicks, and
+            conversions.
+    """
+    customer_id = _normalize_customer_id("customer_id", customer_id)
+    _authorize_customer(customer_id)
+    data_through_date = _validate_iso_date(
+        "data_through_date", data_through_date
+    )
+    captured_at = _validate_text("captured_at", captured_at, 64)
+    try:
+        datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ToolError("captured_at must be a valid ISO-8601 timestamp.") from exc
+
+    payload = {
+        "dataThroughDate": data_through_date,
+        "capturedAt": captured_at,
+        "periods": _validate_scorecard_periods(periods),
+    }
+    status, result = _portal_request(
+        "POST", f"/api/accounts/{customer_id}/scorecard", payload
+    )
+    if (
+        status not in (200, 201)
+        or result.get("published") is not True
+        or result.get("customerId") != customer_id
+    ):
+        raise ToolError(
+            "Recommendation Center did not confirm the account scorecard snapshot."
+        )
+    return {
+        "published": True,
+        "customer_id": customer_id,
+        "data_through_date": data_through_date,
+        "replaced_previous_snapshot": bool(
+            result.get("replacedPreviousSnapshot", False)
+        ),
+        "destination": "Google Ads Recommendation Center",
         "google_ads_changes_made": False,
     }
 
