@@ -782,7 +782,7 @@ class EnrollmentToolsTest(unittest.TestCase):
             note="One recommendation published for review.",
             completed_at="2026-08-08T10:00:00Z",
             data_through_date="2026-08-07",
-            coverage=COVERAGE,
+            coverage=list(reversed(COVERAGE)),
         )
 
         self.assertTrue(result["recorded"])
