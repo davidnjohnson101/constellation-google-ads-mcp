@@ -1,0 +1,20 @@
+namespaces:
+  customers: false
+  metadata:
+    enabled: true
+    prefix: metadata
+    enabled_tools:
+      - get_resource_metadata: true
+  search:
+    enabled: true
+    prefix: search
+    enabled_tools:
+      - search: true
+  recommendations:
+    enabled: true
+    prefix: recommendations
+    enabled_tools:
+      - get_due_enrollments: true
+      - publish_account_scorecard: true
+      - publish_recommendation: true
+      - record_enrollment_run: true

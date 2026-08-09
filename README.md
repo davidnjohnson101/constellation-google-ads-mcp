@@ -59,6 +59,57 @@ targeting and traffic quality, search terms, landing-page signals, and recent
 changes. Failed or ambiguous responses are never reported as published or
 recorded.
 
+### BMW-only API worker
+
+The Constellation fork includes a bounded OpenAI Responses API canary runner.
+It is deliberately separate from the interactive ChatGPT OAuth service and is
+intended to run as a Cloud Run Job with `Dockerfile.worker`. The runner exposes
+only the following remote MCP tools to the model:
+
+- due-enrollment queue lookup;
+- Google Ads metadata and read-only search;
+- account-scorecard publication;
+- recommendation publication; and
+- enrollment-run recording.
+
+No Google Ads mutation tool is mounted or allowed. The worker fails unless the
+due account is BMW of Morristown (`4357201747`), records exactly ten review
+areas, validates portal confirmations from the actual MCP calls, and uses
+`counts_as_new_recommendation` rather than publication acceptance when
+recording the recommendation count.
+
+Deploy the service-MCP and worker as separate Cloud Run workloads from the
+same source. The service-MCP uses `GOOGLE_ADS_MCP_AUTH_MODE=service_jwt` and
+`ads_mcp/worker_tools_config.yaml`; the worker signs a short-lived HS256 JWT
+for every Responses API request. Both workloads receive the shared signing
+secret from Secret Manager. Configure:
+
+- `OPENAI_API_KEY` on the worker only;
+- `GOOGLE_ADS_MCP_SERVICE_URL` on the worker, including the `/mcp` path;
+- `GOOGLE_ADS_MCP_SERVICE_JWT_SECRET` on both workloads;
+- `GOOGLE_ADS_MCP_TOOLS_CONFIG=ads_mcp/worker_tools_config.yaml` on the
+  service-MCP;
+- `GOOGLE_ADS_MCP_ALLOWED_CUSTOMER_IDS=4357201747` and
+  `RECOMMENDATION_CENTER_ALLOWED_CUSTOMER_IDS=4357201747` on the service-MCP;
+- optional matching `GOOGLE_ADS_MCP_SERVICE_JWT_ISSUER` and
+  `GOOGLE_ADS_MCP_SERVICE_JWT_AUDIENCE` values;
+- `GOOGLE_ADS_SERVICE_REFRESH_TOKEN`,
+  `GOOGLE_ADS_SERVICE_OAUTH_CLIENT_ID`, and
+  `GOOGLE_ADS_SERVICE_OAUTH_CLIENT_SECRET` on the service-MCP only; and
+- the existing Google Ads developer token, MCC login customer, portal URL,
+  ingestion key, and Sites bypass token on the service-MCP.
+
+Use a dedicated Google OAuth client for these three offline credentials; do
+not reuse the interactive ChatGPT connector's OAuth client. The deployment
+script stores the dedicated client id, client secret, and refresh token as
+three independent Secret Manager secrets and never prints their values.
+
+The offline Google credentials are used only by the isolated service-MCP. The
+interactive `google-ads-mcp` deployment continues to use its existing Google
+OAuth proxy. Do not attach a Cloud Scheduler trigger until a manual BMW run
+passes the scorecard, semantic-deduplication, ten-area coverage, and exact-once
+run-recording gates.
+
 ### Configuring and Namespacing Tools
 
 The Google Ads MCP server uses the `tools_config.yaml` to let you selectively enable or disable individual tools or tool categories (namespaces) and customize their namespace prefixes.

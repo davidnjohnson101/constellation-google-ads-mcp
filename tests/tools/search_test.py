@@ -97,6 +97,48 @@ class TestSearch(unittest.TestCase):
                     )
                     mock_log_error.assert_called_once()
 
+    @patch.dict(
+        "os.environ",
+        {"GOOGLE_ADS_MCP_ALLOWED_CUSTOMER_IDS": "4357201747"},
+        clear=False,
+    )
+    @patch("ads_mcp.utils.get_googleads_service")
+    def test_search_rejects_customer_outside_service_allowlist(
+        self, mock_get_service
+    ):
+        from fastmcp.exceptions import ToolError
+
+        with self.assertRaisesRegex(ToolError, "query restriction"):
+            search.search(
+                customer_id="1697214266",
+                fields=["campaign.id"],
+                resource="campaign",
+            )
+        mock_get_service.assert_not_called()
+
+    @patch.dict(
+        "os.environ",
+        {"GOOGLE_ADS_MCP_ALLOWED_CUSTOMER_IDS": "4357201747"},
+        clear=False,
+    )
+    @patch("ads_mcp.utils.get_googleads_service")
+    def test_search_allows_configured_customer(self, mock_get_service):
+        mock_get_service.return_value.search_stream.return_value = []
+
+        result = search.search(
+            customer_id="435-720-1747",
+            fields=["campaign.id"],
+            resource="campaign",
+        )
+
+        self.assertEqual(result, [])
+        self.assertEqual(
+            mock_get_service.return_value.search_stream.call_args.kwargs[
+                "customer_id"
+            ],
+            "4357201747",
+        )
+
     @patch("ads_mcp.utils.get_googleads_service")
     def test_search_google_ads_exception(self, mock_get_service):
         """Tests that search handles GoogleAdsException and returns an error dict."""

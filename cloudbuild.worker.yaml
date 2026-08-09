@@ -1,0 +1,15 @@
+substitutions:
+  _IMAGE: us-central1-docker.pkg.dev/$PROJECT_ID/constellation-automation/bmw-ads-recommendation-worker:latest
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --file
+      - Dockerfile.worker
+      - --tag
+      - ${_IMAGE}
+      - .
+
+images:
+  - ${_IMAGE}

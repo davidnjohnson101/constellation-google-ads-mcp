@@ -790,6 +790,30 @@ class EnrollmentToolsTest(unittest.TestCase):
         self.assertEqual(outgoing.method, "GET")
         self.assertIsNone(outgoing.data)
 
+    @patch.dict(
+        "os.environ",
+        {
+            **portal_environment,
+            "RECOMMENDATION_CENTER_ALLOWED_CUSTOMER_IDS": "4357201747",
+        },
+        clear=True,
+    )
+    @patch("ads_mcp.tools.recommendations.request.urlopen")
+    def test_due_queue_is_pinned_to_single_allowed_customer(self, mock_urlopen):
+        accounts = [{"customerId": "4357201747", "cadence": "daily"}]
+        mock_urlopen.return_value = _Response(
+            {"accounts": accounts, "checkedAt": "2026-08-08T02:00:00Z"},
+            status=200,
+        )
+
+        result = get_due_enrollments(limit=1)
+
+        self.assertEqual(result["accounts"], accounts)
+        self.assertEqual(
+            mock_urlopen.call_args.args[0].full_url,
+            "https://recommendations.example/api/accounts/due?limit=1&customerId=4357201747",
+        )
+
     def test_rejects_invalid_due_queue_limit(self):
         for invalid in (0, 11, True, 1.5):
             with self.subTest(invalid=invalid):
