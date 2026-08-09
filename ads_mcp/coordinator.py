@@ -29,8 +29,34 @@ _CLIENT_ID = os.environ.get("GOOGLE_ADS_MCP_OAUTH_CLIENT_ID")
 _CLIENT_SECRET = os.environ.get("GOOGLE_ADS_MCP_OAUTH_CLIENT_SECRET")
 _BASE_URL = os.environ.get("GOOGLE_ADS_MCP_BASE_URL", "http://localhost:8080")
 _JWT_SIGNING_KEY = os.environ.get("GOOGLE_ADS_MCP_JWT_SIGNING_KEY")
+_AUTH_MODE = os.environ.get("GOOGLE_ADS_MCP_AUTH_MODE", "google_oauth").strip()
 
-if _CLIENT_ID and _CLIENT_SECRET:
+if _AUTH_MODE == "service_jwt":
+    from fastmcp.server.auth.providers.jwt import JWTVerifier
+
+    service_secret = os.environ.get("GOOGLE_ADS_MCP_SERVICE_JWT_SECRET", "")
+    service_issuer = os.environ.get(
+        "GOOGLE_ADS_MCP_SERVICE_JWT_ISSUER", "constellation-ads-worker"
+    )
+    service_audience = os.environ.get(
+        "GOOGLE_ADS_MCP_SERVICE_JWT_AUDIENCE", "constellation-google-ads-mcp"
+    )
+    if len(service_secret) < 32:
+        raise ValueError(
+            "GOOGLE_ADS_MCP_SERVICE_JWT_SECRET must contain at least 32 characters."
+        )
+    auth = JWTVerifier(
+        public_key=service_secret,
+        issuer=service_issuer,
+        audience=service_audience,
+        algorithm="HS256",
+        required_scopes=[
+            "google-ads.read",
+            "recommendation-center.write",
+        ],
+    )
+    mcp = FastMCP("Google Ads Server", auth=auth)
+elif _AUTH_MODE == "google_oauth" and _CLIENT_ID and _CLIENT_SECRET:
     client_storage = create_client_storage()
     provider_kwargs: dict[str, Any] = {
         "client_id": _CLIENT_ID,
@@ -50,6 +76,10 @@ if _CLIENT_ID and _CLIENT_SECRET:
 
     auth = GoogleProvider(**provider_kwargs)
     mcp = FastMCP("Google Ads Server", auth=auth)
+elif _AUTH_MODE not in {"google_oauth", "none"}:
+    raise ValueError(
+        "GOOGLE_ADS_MCP_AUTH_MODE must be google_oauth, service_jwt, or none."
+    )
 else:
     mcp = FastMCP("Google Ads Server")
 

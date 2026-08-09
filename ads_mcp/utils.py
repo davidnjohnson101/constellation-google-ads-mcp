@@ -72,6 +72,27 @@ def _create_credentials() -> google.auth.credentials.Credentials:
     from fastmcp.server.dependencies import get_access_token
     from google.oauth2.credentials import Credentials
 
+    service_values = {
+        "refresh_token": os.environ.get("GOOGLE_ADS_SERVICE_REFRESH_TOKEN"),
+        "client_id": os.environ.get("GOOGLE_ADS_SERVICE_OAUTH_CLIENT_ID"),
+        "client_secret": os.environ.get("GOOGLE_ADS_SERVICE_OAUTH_CLIENT_SECRET"),
+    }
+    configured = [bool(value) for value in service_values.values()]
+    if any(configured) and not all(configured):
+        raise ValueError(
+            "GOOGLE_ADS_SERVICE_REFRESH_TOKEN, GOOGLE_ADS_SERVICE_OAUTH_CLIENT_ID, "
+            "and GOOGLE_ADS_SERVICE_OAUTH_CLIENT_SECRET must be configured together."
+        )
+    if all(configured):
+        return Credentials(
+            token=None,
+            refresh_token=service_values["refresh_token"],
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=service_values["client_id"],
+            client_secret=service_values["client_secret"],
+            scopes=[_ADS_SCOPE],
+        )
+
     token_obj = get_access_token()
     if token_obj and token_obj.token:
         # Create credentials using the access token provided by FastMCP

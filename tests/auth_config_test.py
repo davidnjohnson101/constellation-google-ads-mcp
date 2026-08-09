@@ -56,6 +56,10 @@ class TestAuthConfig(unittest.TestCase):
             "GOOGLE_ADS_MCP_OAUTH_CLIENT_ID",
             "GOOGLE_ADS_MCP_OAUTH_CLIENT_SECRET",
             "GOOGLE_ADS_MCP_BASE_URL",
+            "GOOGLE_ADS_MCP_AUTH_MODE",
+            "GOOGLE_ADS_MCP_SERVICE_JWT_SECRET",
+            "GOOGLE_ADS_MCP_SERVICE_JWT_ISSUER",
+            "GOOGLE_ADS_MCP_SERVICE_JWT_AUDIENCE",
         ]
         self.orig_env = {}
         for key in self.env_keys:
@@ -143,6 +147,7 @@ class TestAuthConfig(unittest.TestCase):
         import importlib
         import ads_mcp.coordinator as coord
 
+        mock_provider.reset_mock()
         importlib.reload(coord)
 
         mock_provider.assert_called_once()
@@ -152,6 +157,16 @@ class TestAuthConfig(unittest.TestCase):
         self.assertEqual(kwargs["jwt_signing_key"], "custom_jwt_signing_key")
         self.assertIn("client_storage", kwargs)
         self.assertIsInstance(kwargs["client_storage"], FernetEncryptionWrapper)
+
+    def test_service_jwt_requires_strong_secret(self):
+        """Service MCP authentication fails closed on a short secret."""
+        os.environ["GOOGLE_ADS_MCP_AUTH_MODE"] = "service_jwt"
+        os.environ["GOOGLE_ADS_MCP_SERVICE_JWT_SECRET"] = "too-short"
+        import importlib
+        import ads_mcp.coordinator as coord
+
+        with self.assertRaisesRegex(ValueError, "at least 32 characters"):
+            importlib.reload(coord)
 
 
 if __name__ == "__main__":

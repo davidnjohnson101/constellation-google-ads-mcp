@@ -14,6 +14,8 @@
 
 """Tools for exposing the API Search method to the MCP server."""
 
+import os
+import re
 from typing import Any, Dict, List
 from fastmcp import FastMCP
 from fastmcp.tools import Tool
@@ -24,6 +26,31 @@ search_mcp = FastMCP("search")
 import ads_mcp.utils as utils
 from google.ads.googleads.errors import GoogleAdsException
 from fastmcp.exceptions import ToolError
+
+
+_CUSTOMER_ID_PATTERN = re.compile(r"^\d{10}$")
+
+
+def _authorize_customer_scope(customer_id: str) -> str:
+    """Applies the optional service-level account allowlist before any query."""
+    normalized = customer_id.replace("-", "").strip()
+    if not _CUSTOMER_ID_PATTERN.fullmatch(normalized):
+        raise ToolError("customer_id must contain exactly 10 digits.")
+    raw = os.environ.get("GOOGLE_ADS_MCP_ALLOWED_CUSTOMER_IDS", "").strip()
+    if not raw:
+        return normalized
+    allowed = {
+        value.replace("-", "").strip()
+        for value in raw.split(",")
+        if value.strip()
+    }
+    if any(not _CUSTOMER_ID_PATTERN.fullmatch(value) for value in allowed):
+        raise ToolError(
+            "GOOGLE_ADS_MCP_ALLOWED_CUSTOMER_IDS contains an invalid customer id."
+        )
+    if normalized not in allowed:
+        raise ToolError("This customer id is outside the configured query restriction.")
+    return normalized
 
 
 def search(
@@ -46,6 +73,7 @@ def search(
 
     """
 
+    customer_id = _authorize_customer_scope(customer_id)
     ga_service = utils.get_googleads_service("GoogleAdsService")
 
     query_parts = [f"SELECT {','.join(fields)} FROM {resource}"]

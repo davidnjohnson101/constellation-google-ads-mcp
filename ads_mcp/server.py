@@ -35,9 +35,10 @@ import os
 def run_server() -> None:
     _CLIENT_ID = os.environ.get("GOOGLE_ADS_MCP_OAUTH_CLIENT_ID")
     _CLIENT_SECRET = os.environ.get("GOOGLE_ADS_MCP_OAUTH_CLIENT_SECRET")
+    _AUTH_MODE = os.environ.get("GOOGLE_ADS_MCP_AUTH_MODE", "google_oauth")
     port = int(os.environ.get("PORT", "8080"))
 
-    if _CLIENT_ID and _CLIENT_SECRET:
+    if (_CLIENT_ID and _CLIENT_SECRET) or _AUTH_MODE == "service_jwt":
         mcp.run(
             transport="streamable-http",
             port=port,

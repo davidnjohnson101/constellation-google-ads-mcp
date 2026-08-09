@@ -14,7 +14,9 @@
 
 """Test cases for the utils module."""
 
+import os
 import unittest
+from unittest.mock import patch
 from google.ads.googleads.v24.enums.types.campaign_status import (
     CampaignStatusEnum,
 )
@@ -100,3 +102,34 @@ class TestUtils(unittest.TestCase):
                 subprocess.Popen(["mock_cmd"], stdin=subprocess.PIPE)
 
         mock_popen.assert_called_once_with(["mock_cmd"], stdin=subprocess.PIPE)
+
+    def test_service_credentials_use_offline_refresh_token(self):
+        """The worker service never treats its MCP JWT as a Google token."""
+        with patch.dict(
+            os.environ,
+            {
+                "GOOGLE_ADS_SERVICE_REFRESH_TOKEN": "refresh-token",
+                "GOOGLE_ADS_SERVICE_OAUTH_CLIENT_ID": "client-id",
+                "GOOGLE_ADS_SERVICE_OAUTH_CLIENT_SECRET": "client-secret",
+            },
+            clear=False,
+        ):
+            credentials = utils._create_credentials()
+        self.assertEqual(credentials.refresh_token, "refresh-token")
+        self.assertEqual(credentials.client_id, "client-id")
+        self.assertEqual(
+            credentials.token_uri, "https://oauth2.googleapis.com/token"
+        )
+
+    def test_partial_service_credentials_fail_closed(self):
+        with patch.dict(
+            os.environ,
+            {
+                "GOOGLE_ADS_SERVICE_REFRESH_TOKEN": "refresh-token",
+                "GOOGLE_ADS_SERVICE_OAUTH_CLIENT_ID": "",
+                "GOOGLE_ADS_SERVICE_OAUTH_CLIENT_SECRET": "",
+            },
+            clear=False,
+        ):
+            with self.assertRaisesRegex(ValueError, "configured together"):
+                utils._create_credentials()

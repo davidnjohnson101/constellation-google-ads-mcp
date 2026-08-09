@@ -539,12 +539,24 @@ def get_due_enrollments(limit: int = 3) -> Dict[str, Any]:
     """
     if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10:
         raise ToolError("limit must be an integer from 1 through 10.")
-    status, result = _portal_request("GET", "/api/accounts/due", query={"limit": limit})
+    allowed_customer_ids = _allowed_customer_ids()
+    query: Dict[str, Any] = {"limit": limit}
+    if allowed_customer_ids is not None and len(allowed_customer_ids) == 1:
+        query["customerId"] = next(iter(allowed_customer_ids))
+    status, result = _portal_request("GET", "/api/accounts/due", query=query)
     accounts = result.get("accounts")
     if status != 200 or not isinstance(accounts, list):
         raise ToolError(
             "Recommendation Center did not return a valid enrollment queue."
         )
+    if allowed_customer_ids is not None:
+        for account in accounts:
+            if not isinstance(account, dict) or _normalize_customer_id(
+                "due account customer id", str(account.get("customerId", ""))
+            ) not in allowed_customer_ids:
+                raise ToolError(
+                    "Recommendation Center returned an account outside the configured restriction."
+                )
     return {
         "accounts": accounts,
         "checked_at": result.get("checkedAt"),
