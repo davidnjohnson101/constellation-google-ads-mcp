@@ -5,8 +5,9 @@ one fixed Recommendation Center configured by the service operator.
 """
 
 import json
+import math
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 import re
 from typing import Any, Dict, List, Literal
 from urllib import error, parse, request
@@ -26,14 +27,15 @@ _CUSTOMER_ID_PATTERN = re.compile(r"^\d{10}$")
 _ALLOWED_PRIORITIES = {"High", "Medium", "Low"}
 _MAX_LIST_ITEMS = 12
 _MAX_ITEM_LENGTH = 1_000
-_SCORECARD_PERIOD_KEYS = {
+_SCORECARD_PERIOD_ORDER = (
     "mtd",
     "yesterday",
     "last_7_days",
     "last_month",
     "two_months_ago",
     "mtd_last_year",
-}
+)
+_SCORECARD_PERIOD_KEYS = set(_SCORECARD_PERIOD_ORDER)
 _SEMANTIC_KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9:_-]{1,159}$")
 _RESOURCE_KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9/_:-]{1,179}$")
 _COVERAGE_AREA_LABELS = {
@@ -290,6 +292,145 @@ def _validate_scorecard_periods(
     if seen != _SCORECARD_PERIOD_KEYS:
         raise ToolError("All six required scorecard period keys are required.")
     return normalized
+
+
+def _scorecard_windows(data_through: date) -> List[tuple[str, date, date]]:
+    """Returns the six fixed scorecard windows in their canonical order."""
+    current_month_start = data_through.replace(day=1)
+    last_month_end = current_month_start - timedelta(days=1)
+    last_month_start = last_month_end.replace(day=1)
+    two_months_ago_end = last_month_start - timedelta(days=1)
+    two_months_ago_start = two_months_ago_end.replace(day=1)
+
+    last_year_month_start = date(data_through.year - 1, data_through.month, 1)
+    next_last_year_month = (
+        date(data_through.year, 1, 1)
+        if data_through.month == 12
+        else date(data_through.year - 1, data_through.month + 1, 1)
+    )
+    last_year_month_end = next_last_year_month - timedelta(days=1)
+    last_year_mtd_end = last_year_month_start.replace(
+        day=min(data_through.day, last_year_month_end.day)
+    )
+
+    return [
+        ("mtd", current_month_start, data_through),
+        ("yesterday", data_through, data_through),
+        ("last_7_days", data_through - timedelta(days=6), data_through),
+        ("last_month", last_month_start, last_month_end),
+        ("two_months_ago", two_months_ago_start, two_months_ago_end),
+        ("mtd_last_year", last_year_month_start, last_year_mtd_end),
+    ]
+
+
+def _collect_daily_scorecard_metrics(
+    customer_id: str, windows: List[tuple[str, date, date]]
+) -> tuple[Dict[date, Dict[str, Any]], int]:
+    """Reads one validated customer-level metrics row per active date."""
+    earliest = min(start for _, start, _ in windows)
+    latest = max(end for _, _, end in windows)
+    maximum_rows = (latest - earliest).days + 1
+    query = f"""
+        SELECT
+          customer.id,
+          segments.date,
+          metrics.cost_micros,
+          metrics.impressions,
+          metrics.clicks,
+          metrics.conversions
+        FROM customer
+        WHERE segments.date BETWEEN '{earliest.isoformat()}' AND '{latest.isoformat()}'
+        ORDER BY segments.date
+        LIMIT {maximum_rows + 1}
+        PARAMETERS omit_unselected_resource_names=true
+    """
+
+    daily: Dict[date, Dict[str, Any]] = {}
+    row_count = 0
+    try:
+        google_ads_service = utils.get_googleads_service("GoogleAdsService")
+        response = google_ads_service.search_stream(
+            customer_id=customer_id, query=query
+        )
+        for batch in response:
+            for row in batch.results:
+                row_count += 1
+                if row_count > maximum_rows:
+                    raise ToolError(
+                        "Google Ads returned more than one customer metrics row per date."
+                    )
+                if str(row.customer.id) != customer_id:
+                    raise ToolError(
+                        "Google Ads returned scorecard metrics for a different customer."
+                    )
+                try:
+                    row_date = date.fromisoformat(str(row.segments.date))
+                except ValueError as exc:
+                    raise ToolError(
+                        "Google Ads returned an invalid scorecard metrics date."
+                    ) from exc
+                if not earliest <= row_date <= latest or row_date in daily:
+                    raise ToolError(
+                        "Google Ads returned duplicate or out-of-range scorecard dates."
+                    )
+
+                values: Dict[str, Any] = {}
+                for field in ("cost_micros", "impressions", "clicks"):
+                    value = getattr(row.metrics, field)
+                    if (
+                        isinstance(value, bool)
+                        or not isinstance(value, int)
+                        or value < 0
+                    ):
+                        raise ToolError(
+                            f"Google Ads returned an invalid scorecard {field} value."
+                        )
+                    values[field] = value
+                conversions = row.metrics.conversions
+                if (
+                    isinstance(conversions, bool)
+                    or not isinstance(conversions, (int, float))
+                    or not math.isfinite(float(conversions))
+                    or conversions < 0
+                ):
+                    raise ToolError(
+                        "Google Ads returned an invalid scorecard conversions value."
+                    )
+                values["conversions"] = float(conversions)
+                daily[row_date] = values
+    except ToolError:
+        raise
+    except GoogleAdsException as exc:
+        raise ToolError(
+            "Google Ads could not return the daily account scorecard metrics."
+        ) from exc
+    except Exception as exc:
+        raise ToolError(
+            "Google Ads account scorecard collection could not be completed."
+        ) from exc
+    return daily, row_count
+
+
+def _aggregate_scorecard_periods(
+    daily: Dict[date, Dict[str, Any]],
+    windows: List[tuple[str, date, date]],
+) -> List[Dict[str, Any]]:
+    """Aggregates validated daily rows into the six exact portal periods."""
+    periods = []
+    for key, start, end in windows:
+        rows = [values for day, values in daily.items() if start <= day <= end]
+        periods.append(
+            {
+                "key": key,
+                "start_date": start.isoformat(),
+                "end_date": end.isoformat(),
+                "cost_micros": sum(row["cost_micros"] for row in rows),
+                "impressions": sum(row["impressions"] for row in rows),
+                "clicks": sum(row["clicks"] for row in rows),
+                "conversions": math.fsum(row["conversions"] for row in rows),
+            }
+        )
+    return periods
 
 
 def _normalize_customer_id(name: str, value: str) -> str:
@@ -551,9 +692,14 @@ def get_due_enrollments(limit: int = 3) -> Dict[str, Any]:
         )
     if allowed_customer_ids is not None:
         for account in accounts:
-            if not isinstance(account, dict) or _normalize_customer_id(
-                "due account customer id", str(account.get("customerId", ""))
-            ) not in allowed_customer_ids:
+            if (
+                not isinstance(account, dict)
+                or _normalize_customer_id(
+                    "due account customer id",
+                    str(account.get("customerId", "")),
+                )
+                not in allowed_customer_ids
+            ):
                 raise ToolError(
                     "Recommendation Center returned an account outside the configured restriction."
                 )
@@ -729,6 +875,55 @@ def publish_account_scorecard(
         "destination": "Google Ads Recommendation Center",
         "google_ads_changes_made": False,
     }
+
+
+@recommendations_mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=True,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+)
+def collect_and_publish_account_scorecard(
+    customer_id: str,
+    data_through_date: str,
+) -> Dict[str, Any]:
+    """Collects and replaces one account's deterministic portal scorecard snapshot.
+
+    This action reads customer-level daily Google Ads metrics, calculates the
+    six fixed scorecard windows server-side, and replaces only the latest
+    Recommendation Center snapshot. Missing dates are treated as zero-activity
+    days. It never creates or changes anything in Google Ads.
+
+    Args:
+        customer_id: Ten-digit Google Ads customer id without punctuation.
+        data_through_date: Most recent complete account-local day, YYYY-MM-DD.
+    """
+    customer_id = _normalize_customer_id("customer_id", customer_id)
+    _authorize_customer(customer_id)
+    normalized_date = _validate_iso_date("data_through_date", data_through_date)
+    through = date.fromisoformat(normalized_date)
+    if through >= datetime.now(timezone.utc).date():
+        raise ToolError("data_through_date must be a complete historical day.")
+
+    windows = _scorecard_windows(through)
+    daily, row_count = _collect_daily_scorecard_metrics(customer_id, windows)
+    periods = _aggregate_scorecard_periods(daily, windows)
+    result = publish_account_scorecard(
+        customer_id=customer_id,
+        data_through_date=normalized_date,
+        captured_at=datetime.now(timezone.utc).isoformat(),
+        periods=periods,
+    )
+    result.update(
+        {
+            "period_keys": list(_SCORECARD_PERIOD_ORDER),
+            "source_row_count": row_count,
+            "aggregation": "deterministic_customer_daily",
+        }
+    )
+    return result
 
 
 @recommendations_mcp.tool(

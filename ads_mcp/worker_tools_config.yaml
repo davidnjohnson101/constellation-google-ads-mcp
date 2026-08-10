@@ -15,6 +15,6 @@ namespaces:
     prefix: recommendations
     enabled_tools:
       - get_due_enrollments: true
-      - publish_account_scorecard: true
+      - collect_and_publish_account_scorecard: true
       - publish_recommendation: true
       - record_enrollment_run: true

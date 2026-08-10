@@ -8,6 +8,7 @@ from unittest.mock import patch
 from fastmcp.exceptions import ToolError
 
 from ads_mcp.tools.recommendations import (
+    collect_and_publish_account_scorecard,
     get_due_enrollments,
     publish_account_scorecard,
     publish_recommendation,
@@ -695,12 +696,108 @@ class AccountScorecardPublishingTest(unittest.TestCase):
         invalid = {
             **SCORECARD_ARGUMENTS,
             "periods": [
-                {**period, "cost_micros": -1} if period["key"] == "mtd" else period
+                ({**period, "cost_micros": -1} if period["key"] == "mtd" else period)
                 for period in SCORECARD_ARGUMENTS["periods"]
             ],
         }
         with self.assertRaisesRegex(ToolError, "non-negative integer"):
             publish_account_scorecard(**invalid)
+        mock_urlopen.assert_not_called()
+
+    @staticmethod
+    def _metrics_row(
+        row_date,
+        cost_micros,
+        impressions,
+        clicks,
+        conversions,
+        customer_id=4357201747,
+    ):
+        return SimpleNamespace(
+            customer=SimpleNamespace(id=customer_id),
+            segments=SimpleNamespace(date=row_date),
+            metrics=SimpleNamespace(
+                cost_micros=cost_micros,
+                impressions=impressions,
+                clicks=clicks,
+                conversions=conversions,
+            ),
+        )
+
+    @patch.dict("os.environ", portal_environment, clear=True)
+    @patch("ads_mcp.tools.recommendations.request.urlopen")
+    @patch("ads_mcp.tools.recommendations.utils.get_googleads_service")
+    def test_collects_and_aggregates_fixed_windows_server_side(
+        self, mock_get_service, mock_urlopen
+    ):
+        metrics = [
+            self._metrics_row("2025-08-01", 100000, 100, 10, 1.25),
+            self._metrics_row("2025-08-07", 200000, 200, 20, 2.5),
+            self._metrics_row("2026-06-15", 300000, 300, 30, 3.75),
+            self._metrics_row("2026-07-31", 400000, 400, 40, 4.0),
+            self._metrics_row("2026-08-01", 500000, 500, 50, 5.5),
+            self._metrics_row("2026-08-07", 600000, 600, 60, 6.25),
+        ]
+        mock_get_service.return_value.search_stream.side_effect = [
+            _hierarchy_response(),
+            [SimpleNamespace(results=metrics)],
+            _hierarchy_response(),
+        ]
+        mock_urlopen.return_value = _Response(
+            {
+                "published": True,
+                "customerId": "4357201747",
+                "replacedPreviousSnapshot": True,
+            },
+            status=200,
+        )
+
+        result = collect_and_publish_account_scorecard(
+            customer_id="4357201747", data_through_date="2026-08-07"
+        )
+
+        self.assertEqual(
+            result["period_keys"],
+            [
+                "mtd",
+                "yesterday",
+                "last_7_days",
+                "last_month",
+                "two_months_ago",
+                "mtd_last_year",
+            ],
+        )
+        self.assertEqual(result["source_row_count"], 6)
+        self.assertFalse(result["google_ads_changes_made"])
+        outgoing = mock_urlopen.call_args.args[0]
+        payload = json.loads(outgoing.data.decode("utf-8"))
+        periods = {period["key"]: period for period in payload["periods"]}
+        self.assertEqual(periods["mtd"]["costMicros"], 1100000)
+        self.assertEqual(periods["mtd"]["conversions"], 11.75)
+        self.assertEqual(periods["yesterday"]["costMicros"], 600000)
+        self.assertEqual(periods["last_month"]["startDate"], "2026-07-01")
+        self.assertEqual(periods["last_month"]["endDate"], "2026-07-31")
+        self.assertEqual(periods["two_months_ago"]["costMicros"], 300000)
+        self.assertEqual(periods["mtd_last_year"]["startDate"], "2025-08-01")
+        self.assertEqual(periods["mtd_last_year"]["endDate"], "2025-08-07")
+
+    @patch.dict("os.environ", portal_environment, clear=True)
+    @patch("ads_mcp.tools.recommendations.request.urlopen")
+    @patch("ads_mcp.tools.recommendations.utils.get_googleads_service")
+    def test_deterministic_collection_rejects_duplicate_daily_rows(
+        self, mock_get_service, mock_urlopen
+    ):
+        duplicate = self._metrics_row("2026-08-07", 100, 1, 1, 1.0)
+        mock_get_service.return_value.search_stream.side_effect = [
+            _hierarchy_response(),
+            [SimpleNamespace(results=[duplicate, duplicate])],
+        ]
+
+        with self.assertRaisesRegex(ToolError, "duplicate or out-of-range"):
+            collect_and_publish_account_scorecard(
+                customer_id="4357201747", data_through_date="2026-08-07"
+            )
+
         mock_urlopen.assert_not_called()
 
 
