@@ -46,12 +46,21 @@ def successful_response(recommendation_count=0):
         call("metadata_get_resource_metadata", {"fields": ["customer.id"]}),
         call("search_search", [{"customer.id": BMW_CUSTOMER_ID}]),
         call(
-            "recommendations_publish_account_scorecard",
+            "recommendations_collect_and_publish_account_scorecard",
             {
                 "published": True,
                 "customer_id": BMW_CUSTOMER_ID,
                 "data_through_date": date,
                 "replaced_previous_snapshot": True,
+                "period_keys": [
+                    "mtd",
+                    "yesterday",
+                    "last_7_days",
+                    "last_month",
+                    "two_months_ago",
+                    "mtd_last_year",
+                ],
+                "aggregation": "deterministic_customer_daily",
                 "google_ads_changes_made": False,
             },
         ),

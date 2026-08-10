@@ -17,7 +17,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable
 
-
 BMW_CUSTOMER_ID = "4357201747"
 BMW_ACCOUNT_NAME = "BMW of Morristown"
 BMW_CAMPAIGN_IDS = ("23599481700", "23620289473", "24095737162")
@@ -26,7 +25,7 @@ ALLOWED_TOOLS = (
     "recommendations_get_due_enrollments",
     "metadata_get_resource_metadata",
     "search_search",
-    "recommendations_publish_account_scorecard",
+    "recommendations_collect_and_publish_account_scorecard",
     "recommendations_publish_recommendation",
     "recommendations_record_enrollment_run",
 )
@@ -56,15 +55,14 @@ SAFETY AND SCOPE
 
 SCORECARD
 
-6. Query customer {BMW_CUSTOMER_ID} for customer.id, segments.date,
-   metrics.cost_micros, metrics.impressions, metrics.clicks, and
-   metrics.conversions. Validate identity, dates, nonnegative values,
-   duplicates, and query limits. Preserve integer cost micros and fractional
-   conversions.
-7. Calculate exactly six windows ending on data_through_date: mtd, yesterday,
-   last_7_days, last_month, two_months_ago, and mtd_last_year. Publish the
-   snapshot exactly once with recommendations_publish_account_scorecard and
-   require its matching success confirmation.
+6. After the customer metadata preflight, call
+   recommendations_collect_and_publish_account_scorecard exactly once with
+   customer {BMW_CUSTOMER_ID} and data_through_date. This purpose-built action
+   reads customer-level daily metrics and calculates exactly these six windows
+   server-side: mtd, yesterday, last_7_days, last_month, two_months_ago, and
+   mtd_last_year. Do not call the free-form scorecard publisher and do not
+   calculate or supply scorecard periods yourself. Require the matching
+   publication confirmation and all six canonical period keys.
 
 TEN-AREA REVIEW
 
@@ -142,9 +140,7 @@ def create_service_jwt(now: int | None = None) -> str:
         json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
     )
     message = f"{encoded_header}.{encoded_payload}".encode("ascii")
-    signature = _b64url(
-        hmac.new(secret.encode(), message, hashlib.sha256).digest()
-    )
+    signature = _b64url(hmac.new(secret.encode(), message, hashlib.sha256).digest())
     return f"{encoded_header}.{encoded_payload}.{signature}"
 
 
@@ -228,7 +224,9 @@ def validate_response(response: Any) -> Dict[str, Any]:
         raise WorkerContractError("The required metadata preflight did not run")
     if not by_name.get("search_search"):
         raise WorkerContractError("No Google Ads read-only searches ran")
-    scorecards = by_name.get("recommendations_publish_account_scorecard", [])
+    scorecards = by_name.get(
+        "recommendations_collect_and_publish_account_scorecard", []
+    )
     if len(scorecards) != 1:
         raise WorkerContractError("The scorecard must be published exactly once")
     scorecard = _json_object(scorecards[0].get("output"), "scorecard output")
@@ -236,6 +234,15 @@ def validate_response(response: Any) -> Dict[str, Any]:
         scorecard.get("published") is not True
         or scorecard.get("customer_id") != BMW_CUSTOMER_ID
         or scorecard.get("google_ads_changes_made") is not False
+        or scorecard.get("period_keys")
+        != [
+            "mtd",
+            "yesterday",
+            "last_7_days",
+            "last_month",
+            "two_months_ago",
+            "mtd_last_year",
+        ]
     ):
         raise WorkerContractError("The scorecard publication was not confirmed")
 
@@ -287,7 +294,7 @@ def validate_response(response: Any) -> Dict[str, Any]:
         )
     for call in calls:
         if call.get("name") in {
-            "recommendations_publish_account_scorecard",
+            "recommendations_collect_and_publish_account_scorecard",
             "recommendations_publish_recommendation",
             "recommendations_record_enrollment_run",
         }:

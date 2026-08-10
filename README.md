@@ -68,7 +68,7 @@ only the following remote MCP tools to the model:
 
 - due-enrollment queue lookup;
 - Google Ads metadata and read-only search;
-- account-scorecard publication;
+- deterministic customer-level scorecard collection and publication;
 - recommendation publication; and
 - enrollment-run recording.
 
@@ -76,7 +76,9 @@ No Google Ads mutation tool is mounted or allowed. The worker fails unless the
 due account is BMW of Morristown (`4357201747`), records exactly ten review
 areas, validates portal confirmations from the actual MCP calls, and uses
 `counts_as_new_recommendation` rather than publication acceptance when
-recording the recommendation count.
+recording the recommendation count. The scorecard collector owns the six fixed
+date windows and their aggregation server-side; the model cannot supply or
+rename period keys, or publish a free-form scorecard payload.
 
 Deploy the service-MCP and worker as separate Cloud Run workloads from the
 same source. The service-MCP uses `GOOGLE_ADS_MCP_AUTH_MODE=service_jwt` and
