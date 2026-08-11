@@ -86,6 +86,11 @@ with `segments.date`. When conversion recency is material, the worker must use
 a separate compatible search without `segments.date`. The worker audits the
 actual MCP search arguments before accepting a completed run.
 
+The BMW canary also uses the Recommendation Center's controlled VDP rule
+identity verbatim. Until another recommendation type receives an approved
+catalog contract, the worker records other observations in coverage notes but
+does not submit model-invented semantic keys to the portal.
+
 Deploy the service-MCP and worker as separate Cloud Run workloads from the
 same source. The service-MCP uses `GOOGLE_ADS_MCP_AUTH_MODE=service_jwt` and
 `ads_mcp/worker_tools_config.yaml`; the worker signs a short-lived HS256 JWT
