@@ -89,6 +89,16 @@ def successful_response(recommendation_count=0):
                 "duplicate": True,
                 "google_ads_changes_made": False,
             },
+            {
+                "run_id": run_id,
+                "rule_key": "conversion-goals:exclude-vdp-page-views:v1",
+                "affected_resource_keys": [
+                    "campaign:23620289473",
+                    "campaign:24095737162",
+                ],
+                "condition_key": "macro-vdp-goal-active",
+                "proposed_state_key": "macro-goal-only",
+            },
         ),
         call(
             "recommendations_record_enrollment_run",
@@ -116,6 +126,16 @@ class RecommendationWorkerTest(unittest.TestCase):
         )
         self.assertIn("use a separate", RUNNER_PROMPT)
         self.assertIn("without segments.date", RUNNER_PROMPT)
+
+    def test_runner_contract_uses_the_controlled_bmw_publication_identity(self):
+        self.assertIn(
+            "rule_key=conversion-goals:exclude-vdp-page-views:v1",
+            RUNNER_PROMPT,
+        )
+        self.assertIn("campaign:23620289473", RUNNER_PROMPT)
+        self.assertIn("campaign:24095737162", RUNNER_PROMPT)
+        self.assertIn("condition_key=macro-vdp-goal-active", RUNNER_PROMPT)
+        self.assertIn("proposed_state_key=macro-goal-only", RUNNER_PROMPT)
 
     def test_service_jwt_contains_bounded_claims(self):
         with patch.dict(
@@ -211,6 +231,22 @@ class RecommendationWorkerTest(unittest.TestCase):
         result = validate_response(response)
 
         self.assertEqual(result["status"], "succeeded")
+
+    def test_rejects_an_uncontrolled_recommendation_identity(self):
+        response = successful_response()
+        publication = next(
+            item
+            for item in response["output"]
+            if item["name"] == "recommendations_publish_recommendation"
+        )
+        arguments = json.loads(publication["arguments"])
+        arguments["rule_key"] = "model-invented-rule:v1"
+        publication["arguments"] = json.dumps(arguments)
+
+        with self.assertRaisesRegex(
+            WorkerContractError, "controlled BMW VDP contract"
+        ):
+            validate_response(response)
 
     def test_rejects_disallowed_tool(self):
         response = successful_response()
