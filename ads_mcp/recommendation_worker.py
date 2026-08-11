@@ -67,6 +67,11 @@ SAFETY AND SCOPE
    conversion recency is material to a review conclusion, use a separate
    resource-compatible search without segments.date. A field being selectable
    in metadata does not establish that it is compatible with every segment.
+6a. Omit orderings unless an ordering is necessary to establish evidence. For
+    campaign_conversion_goal searches, never put
+    campaign_conversion_goal.campaign in orderings: Google Ads permits
+    selecting that field but rejects it in ORDER BY. If stable presentation
+    order is useful, sort the returned rows after retrieval.
 
 SCORECARD
 
@@ -210,10 +215,22 @@ def _contains_gaql_field(value: Any, field: str) -> bool:
 def _validate_search_arguments(call: Dict[str, Any]) -> None:
     """Audits the date-segment compatibility rule in the authoritative call."""
     arguments = _json_object(call.get("arguments"), "search arguments")
+    resource = arguments.get("resource")
+    orderings = arguments.get("orderings")
+    if (
+        resource == "campaign_conversion_goal"
+        and _contains_gaql_field(
+            orderings, "campaign_conversion_goal.campaign"
+        )
+    ):
+        raise WorkerContractError(
+            "campaign_conversion_goal.campaign is not sortable and must not "
+            "be used in orderings"
+        )
     query_parts = [
         arguments.get("fields"),
         arguments.get("conditions"),
-        arguments.get("orderings"),
+        orderings,
     ]
     if any(
         _contains_gaql_field(part, "segments.date") for part in query_parts
