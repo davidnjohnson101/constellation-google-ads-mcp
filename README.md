@@ -80,6 +80,12 @@ recording the recommendation count. The scorecard collector owns the six fixed
 date windows and their aggregation server-side; the model cannot supply or
 rename period keys, or publish a free-form scorecard payload.
 
+Date-segmented performance searches explicitly exclude
+`metrics.conversion_last_conversion_date`, which Google Ads does not support
+with `segments.date`. When conversion recency is material, the worker must use
+a separate compatible search without `segments.date`. The worker audits the
+actual MCP search arguments before accepting a completed run.
+
 Deploy the service-MCP and worker as separate Cloud Run workloads from the
 same source. The service-MCP uses `GOOGLE_ADS_MCP_AUTH_MODE=service_jwt` and
 `ads_mcp/worker_tools_config.yaml`; the worker signs a short-lived HS256 JWT

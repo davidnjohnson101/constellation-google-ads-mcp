@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -52,10 +53,17 @@ SAFETY AND SCOPE
    metadata_get_resource_metadata for every Google Ads resource before the
    first search using that resource. Do not treat any older metadata
    prohibition as applicable to this isolated run.
+6. GAQL compatibility is a fail-closed preflight, not a retry strategy. Never
+   select, filter, or order by metrics.conversion_last_conversion_date in a
+   search that also selects, filters, or orders by segments.date. Date-window
+   performance searches must omit metrics.conversion_last_conversion_date. If
+   conversion recency is material to a review conclusion, use a separate
+   resource-compatible search without segments.date. A field being selectable
+   in metadata does not establish that it is compatible with every segment.
 
 SCORECARD
 
-6. After the customer metadata preflight, call
+7. After the customer metadata preflight, call
    recommendations_collect_and_publish_account_scorecard exactly once with
    customer {BMW_CUSTOMER_ID} and data_through_date. This purpose-built action
    reads customer-level daily metrics and calculates exactly these six windows
@@ -174,6 +182,41 @@ def _mcp_calls(payload: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
             yield item
 
 
+def _contains_gaql_field(value: Any, field: str) -> bool:
+    """Returns whether one MCP search argument references an exact GAQL field."""
+    if isinstance(value, str):
+        return (
+            re.search(
+                rf"(?<![A-Za-z0-9_.]){re.escape(field)}(?![A-Za-z0-9_.])", value
+            )
+            is not None
+        )
+    if isinstance(value, list):
+        return any(_contains_gaql_field(item, field) for item in value)
+    return False
+
+
+def _validate_search_arguments(call: Dict[str, Any]) -> None:
+    """Audits the date-segment compatibility rule in the authoritative call."""
+    arguments = _json_object(call.get("arguments"), "search arguments")
+    query_parts = [
+        arguments.get("fields"),
+        arguments.get("conditions"),
+        arguments.get("orderings"),
+    ]
+    if any(
+        _contains_gaql_field(part, "segments.date") for part in query_parts
+    ) and any(
+        _contains_gaql_field(part, "metrics.conversion_last_conversion_date")
+        for part in query_parts
+    ):
+        raise WorkerContractError(
+            "A date-segmented search included "
+            "metrics.conversion_last_conversion_date; use a separate "
+            "unsegmented conversion-recency search"
+        )
+
+
 def validate_response(response: Any) -> Dict[str, Any]:
     """Validates the authoritative MCP calls, not the model's prose summary."""
     payload = _as_dict(response)
@@ -189,6 +232,8 @@ def validate_response(response: Any) -> Dict[str, Any]:
     if names.count("recommendations_get_due_enrollments") != 1:
         raise WorkerContractError("The due queue must be checked exactly once")
     for call in calls:
+        if call.get("name") == "search_search":
+            _validate_search_arguments(call)
         if call.get("error") not in (None, ""):
             raise WorkerContractError(
                 f"MCP call {call.get('name')} failed: {call.get('error')}"

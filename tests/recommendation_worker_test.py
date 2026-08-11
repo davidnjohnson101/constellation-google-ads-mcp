@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from ads_mcp.recommendation_worker import (
     BMW_CUSTOMER_ID,
+    RUNNER_PROMPT,
     WorkerContractError,
     create_service_jwt,
     validate_response,
@@ -44,7 +45,19 @@ def successful_response(recommendation_count=0):
             },
         ),
         call("metadata_get_resource_metadata", {"fields": ["customer.id"]}),
-        call("search_search", [{"customer.id": BMW_CUSTOMER_ID}]),
+        call(
+            "search_search",
+            [{"segments.date": date, "metrics.conversions": 1}],
+            {
+                "customer_id": BMW_CUSTOMER_ID,
+                "resource": "customer",
+                "fields": ["segments.date", "metrics.conversions"],
+                "conditions": [
+                    "segments.date BETWEEN '2026-08-08' AND '2026-08-08'"
+                ],
+                "orderings": ["segments.date ASC"],
+            },
+        ),
         call(
             "recommendations_collect_and_publish_account_scorecard",
             {
@@ -96,6 +109,14 @@ def successful_response(recommendation_count=0):
 
 
 class RecommendationWorkerTest(unittest.TestCase):
+    def test_runner_contract_splits_conversion_recency_from_date_segments(self):
+        self.assertIn(
+            "Never\n   select, filter, or order by metrics.conversion_last_conversion_date",
+            RUNNER_PROMPT,
+        )
+        self.assertIn("use a separate", RUNNER_PROMPT)
+        self.assertIn("without segments.date", RUNNER_PROMPT)
+
     def test_service_jwt_contains_bounded_claims(self):
         with patch.dict(
             os.environ,
@@ -150,6 +171,46 @@ class RecommendationWorkerTest(unittest.TestCase):
             WorkerContractError, "recommendation_count does not match"
         ):
             validate_response(successful_response(recommendation_count=1))
+
+    def test_rejects_last_conversion_date_in_date_segmented_search(self):
+        response = successful_response()
+        search_call = next(
+            item
+            for item in response["output"]
+            if item["name"] == "search_search"
+        )
+        arguments = json.loads(search_call["arguments"])
+        arguments["fields"].append("metrics.conversion_last_conversion_date")
+        search_call["arguments"] = json.dumps(arguments)
+
+        with self.assertRaisesRegex(
+            WorkerContractError, "date-segmented search included"
+        ):
+            validate_response(response)
+
+    def test_allows_last_conversion_date_in_separate_unsegmented_search(self):
+        response = successful_response()
+        search_call = next(
+            item
+            for item in response["output"]
+            if item["name"] == "search_search"
+        )
+        search_call["arguments"] = json.dumps(
+            {
+                "customer_id": BMW_CUSTOMER_ID,
+                "resource": "campaign",
+                "fields": [
+                    "campaign.id",
+                    "metrics.conversion_last_conversion_date",
+                ],
+                "conditions": ["campaign.status = 'ENABLED'"],
+                "orderings": [],
+            }
+        )
+
+        result = validate_response(response)
+
+        self.assertEqual(result["status"], "succeeded")
 
     def test_rejects_disallowed_tool(self):
         response = successful_response()
