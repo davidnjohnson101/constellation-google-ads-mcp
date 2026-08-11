@@ -27,6 +27,7 @@ import ads_mcp.utils as utils
 from google.ads.googleads.errors import GoogleAdsException
 from fastmcp.exceptions import ToolError
 
+
 _CUSTOMER_ID_PATTERN = re.compile(r"^\d{10}$")
 
 
@@ -48,9 +49,7 @@ def _authorize_customer_scope(customer_id: str) -> str:
             "GOOGLE_ADS_MCP_ALLOWED_CUSTOMER_IDS contains an invalid customer id."
         )
     if normalized not in allowed:
-        raise ToolError(
-            "This customer id is outside the configured query restriction."
-        )
+        raise ToolError("This customer id is outside the configured query restriction.")
     return normalized
 
 
