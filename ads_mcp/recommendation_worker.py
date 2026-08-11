@@ -21,6 +21,13 @@ from typing import Any, Dict, Iterable
 BMW_CUSTOMER_ID = "4357201747"
 BMW_ACCOUNT_NAME = "BMW of Morristown"
 BMW_CAMPAIGN_IDS = ("23599481700", "23620289473", "24095737162")
+BMW_VDP_RULE_KEY = "conversion-goals:exclude-vdp-page-views:v1"
+BMW_VDP_RESOURCE_KEYS = (
+    "campaign:23620289473",
+    "campaign:24095737162",
+)
+BMW_VDP_CONDITION_KEY = "macro-vdp-goal-active"
+BMW_VDP_PROPOSED_STATE_KEY = "macro-goal-only"
 
 ALLOWED_TOOLS = (
     "recommendations_get_due_enrollments",
@@ -79,11 +86,15 @@ TEN-AREA REVIEW
    campaign_structure, ads_assets, targeting_traffic, search_terms,
    landing_pages, and recent_changes. Use not_applicable or unable_to_verify
    when evidence cannot safely establish a conclusion. Never guess.
-9. Publish only evidence-backed recommendations. Each publication must include
-   run_id and all four semantic identity fields: rule_key,
-   affected_resource_keys, condition_key, and proposed_state_key. Stable
-   identity must describe the issue and affected resources, never confidence,
-   prose, timestamps, or evidence values.
+9. The only recommendation currently authorized for publication by this BMW
+   canary is removing VDP page-view actions from Vehicle Ads and Demand Gen
+   campaign optimization, and only when current evidence still supports it.
+   Use exactly rule_key={BMW_VDP_RULE_KEY},
+   affected_resource_keys={list(BMW_VDP_RESOURCE_KEYS)},
+   condition_key={BMW_VDP_CONDITION_KEY}, and
+   proposed_state_key={BMW_VDP_PROPOSED_STATE_KEY}. Never invent or vary these
+   controlled catalog values. Record any other observed issue only in its
+   coverage note; do not publish it until it has an approved catalog contract.
 10. Count only publications whose exact response has
     counts_as_new_recommendation=true. Refreshed and suppressed duplicates are
     successful ingestion but contribute zero.
@@ -217,6 +228,23 @@ def _validate_search_arguments(call: Dict[str, Any]) -> None:
         )
 
 
+def _validate_recommendation_arguments(call: Dict[str, Any]) -> None:
+    """Restricts BMW publication to the portal's controlled VDP contract."""
+    arguments = _json_object(call.get("arguments"), "recommendation arguments")
+    actual_resources = arguments.get("affected_resource_keys")
+    if (
+        arguments.get("rule_key") != BMW_VDP_RULE_KEY
+        or not isinstance(actual_resources, list)
+        or sorted(actual_resources) != sorted(BMW_VDP_RESOURCE_KEYS)
+        or arguments.get("condition_key") != BMW_VDP_CONDITION_KEY
+        or arguments.get("proposed_state_key") != BMW_VDP_PROPOSED_STATE_KEY
+    ):
+        raise WorkerContractError(
+            "A recommendation publication did not match the controlled BMW "
+            "VDP contract"
+        )
+
+
 def validate_response(response: Any) -> Dict[str, Any]:
     """Validates the authoritative MCP calls, not the model's prose summary."""
     payload = _as_dict(response)
@@ -234,6 +262,8 @@ def validate_response(response: Any) -> Dict[str, Any]:
     for call in calls:
         if call.get("name") == "search_search":
             _validate_search_arguments(call)
+        if call.get("name") == "recommendations_publish_recommendation":
+            _validate_recommendation_arguments(call)
         if call.get("error") not in (None, ""):
             raise WorkerContractError(
                 f"MCP call {call.get('name')} failed: {call.get('error')}"
