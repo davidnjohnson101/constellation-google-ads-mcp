@@ -27,7 +27,6 @@ import ads_mcp.utils as utils
 from google.ads.googleads.errors import GoogleAdsException
 from fastmcp.exceptions import ToolError
 
-
 _CUSTOMER_ID_PATTERN = re.compile(r"^\d{10}$")
 
 
@@ -49,7 +48,9 @@ def _authorize_customer_scope(customer_id: str) -> str:
             "GOOGLE_ADS_MCP_ALLOWED_CUSTOMER_IDS contains an invalid customer id."
         )
     if normalized not in allowed:
-        raise ToolError("This customer id is outside the configured query restriction.")
+        raise ToolError(
+            "This customer id is outside the configured query restriction."
+        )
     return normalized
 
 
@@ -145,6 +146,11 @@ def _search_tool_description() -> str:
 ### Hints for Dates
     All dates should be in the form YYYY-MM-DD and must include the dashes (-)
     Date ranges must be finite and must include a start and end date
+    Never combine segments.date with metrics.conversion_last_conversion_date
+    in SELECT, WHERE, or ORDER BY. Google Ads does not support that metric in a
+    date-segmented query. Omit it from date-window performance queries. If
+    conversion recency is needed, run a separate compatible query without
+    segments.date.
 
 ### Hints for limits
     Requests to resource change_event must specify a LIMIT of less than or equal to 10000
