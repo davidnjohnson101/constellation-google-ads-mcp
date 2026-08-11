@@ -163,9 +163,7 @@ class RecommendationWorkerTest(unittest.TestCase):
         result = validate_response(successful_response())
         self.assertEqual(result["status"], "succeeded")
         self.assertEqual(result["recommendation_count"], 0)
-        self.assertEqual(
-            result["publication_outcomes"][0]["outcome"], "refreshed"
-        )
+        self.assertEqual(result["publication_outcomes"][0]["outcome"], "refreshed")
         self.assertFalse(result["google_ads_changes_made"])
 
     def test_rejects_recorded_count_that_does_not_match_publications(self):
