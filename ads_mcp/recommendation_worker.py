@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -52,10 +53,17 @@ SAFETY AND SCOPE
    metadata_get_resource_metadata for every Google Ads resource before the
    first search using that resource. Do not treat any older metadata
    prohibition as applicable to this isolated run.
+6. GAQL compatibility is a fail-closed preflight, not a retry strategy. Never
+   select, filter, or order by metrics.conversion_last_conversion_date in a
+   search that also selects, filters, or orders by segments.date. Date-window
+   performance searches must omit metrics.conversion_last_conversion_date. If
+   conversion recency is material to a review conclusion, use a separate
+   resource-compatible search without segments.date. A field being selectable
+   in metadata does not establish that it is compatible with every segment.
 
 SCORECARD
 
-6. After the customer metadata preflight, call
+7. After the customer metadata preflight, call
    recommendations_collect_and_publish_account_scorecard exactly once with
    customer {BMW_CUSTOMER_ID} and data_through_date. This purpose-built action
    reads customer-level daily metrics and calculates exactly these six windows
@@ -140,7 +148,9 @@ def create_service_jwt(now: int | None = None) -> str:
         json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
     )
     message = f"{encoded_header}.{encoded_payload}".encode("ascii")
-    signature = _b64url(hmac.new(secret.encode(), message, hashlib.sha256).digest())
+    signature = _b64url(
+        hmac.new(secret.encode(), message, hashlib.sha256).digest()
+    )
     return f"{encoded_header}.{encoded_payload}.{signature}"
 
 
@@ -168,10 +178,47 @@ def _json_object(value: Any, label: str) -> Dict[str, Any]:
 def _mcp_calls(payload: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
     output = payload.get("output")
     if not isinstance(output, list):
-        raise WorkerContractError("OpenAI response did not contain output items")
+        raise WorkerContractError(
+            "OpenAI response did not contain output items"
+        )
     for item in output:
         if isinstance(item, dict) and item.get("type") == "mcp_call":
             yield item
+
+
+def _contains_gaql_field(value: Any, field: str) -> bool:
+    """Returns whether one MCP search argument references an exact GAQL field."""
+    if isinstance(value, str):
+        return (
+            re.search(
+                rf"(?<![A-Za-z0-9_.]){re.escape(field)}(?![A-Za-z0-9_.])", value
+            )
+            is not None
+        )
+    if isinstance(value, list):
+        return any(_contains_gaql_field(item, field) for item in value)
+    return False
+
+
+def _validate_search_arguments(call: Dict[str, Any]) -> None:
+    """Audits the date-segment compatibility rule in the authoritative call."""
+    arguments = _json_object(call.get("arguments"), "search arguments")
+    query_parts = [
+        arguments.get("fields"),
+        arguments.get("conditions"),
+        arguments.get("orderings"),
+    ]
+    if any(
+        _contains_gaql_field(part, "segments.date") for part in query_parts
+    ) and any(
+        _contains_gaql_field(part, "metrics.conversion_last_conversion_date")
+        for part in query_parts
+    ):
+        raise WorkerContractError(
+            "A date-segmented search included "
+            "metrics.conversion_last_conversion_date; use a separate "
+            "unsegmented conversion-recency search"
+        )
 
 
 def validate_response(response: Any) -> Dict[str, Any]:
@@ -189,6 +236,8 @@ def validate_response(response: Any) -> Dict[str, Any]:
     if names.count("recommendations_get_due_enrollments") != 1:
         raise WorkerContractError("The due queue must be checked exactly once")
     for call in calls:
+        if call.get("name") == "search_search":
+            _validate_search_arguments(call)
         if call.get("error") not in (None, ""):
             raise WorkerContractError(
                 f"MCP call {call.get('name')} failed: {call.get('error')}"
@@ -204,21 +253,27 @@ def validate_response(response: Any) -> Dict[str, Any]:
     accounts = due.get("accounts")
     if accounts == []:
         if len(calls) != 1:
-            raise WorkerContractError("A no-due run must stop after the queue check")
+            raise WorkerContractError(
+                "A no-due run must stop after the queue check"
+            )
         return {
             "status": "no_due",
             "customer_id": None,
             "google_ads_changes_made": False,
         }
     if not isinstance(accounts, list) or len(accounts) != 1:
-        raise WorkerContractError("The due queue did not return exactly one account")
+        raise WorkerContractError(
+            "The due queue did not return exactly one account"
+        )
     account = accounts[0]
     if not isinstance(account, dict):
         raise WorkerContractError("The due account was malformed")
     customer_id = str(account.get("customerId", "")).replace("-", "")
     account_name = str(account.get("descriptiveName", ""))
     if customer_id != BMW_CUSTOMER_ID or BMW_ACCOUNT_NAME not in account_name:
-        raise WorkerContractError("The due account is outside the BMW canary scope")
+        raise WorkerContractError(
+            "The due account is outside the BMW canary scope"
+        )
 
     if not by_name.get("metadata_get_resource_metadata"):
         raise WorkerContractError("The required metadata preflight did not run")
@@ -228,7 +283,9 @@ def validate_response(response: Any) -> Dict[str, Any]:
         "recommendations_collect_and_publish_account_scorecard", []
     )
     if len(scorecards) != 1:
-        raise WorkerContractError("The scorecard must be published exactly once")
+        raise WorkerContractError(
+            "The scorecard must be published exactly once"
+        )
     scorecard = _json_object(scorecards[0].get("output"), "scorecard output")
     if (
         scorecard.get("published") is not True
@@ -248,10 +305,14 @@ def validate_response(response: Any) -> Dict[str, Any]:
 
     records = by_name.get("recommendations_record_enrollment_run", [])
     if len(records) != 1:
-        raise WorkerContractError("The enrollment run must be recorded exactly once")
+        raise WorkerContractError(
+            "The enrollment run must be recorded exactly once"
+        )
     record_call = records[0]
     record = _json_object(record_call.get("output"), "run record output")
-    arguments = _json_object(record_call.get("arguments"), "run record arguments")
+    arguments = _json_object(
+        record_call.get("arguments"), "run record arguments"
+    )
     if (
         record.get("recorded") is not True
         or record.get("customer_id") != BMW_CUSTOMER_ID
@@ -263,11 +324,15 @@ def validate_response(response: Any) -> Dict[str, Any]:
             f"The BMW analysis recorded status {record.get('status')!r}"
         )
     data_through_date = str(record.get("data_through_date", ""))
-    expected_run_id = f"RUN-{data_through_date.replace('-', '')}-{BMW_CUSTOMER_ID}"
+    expected_run_id = (
+        f"RUN-{data_through_date.replace('-', '')}-{BMW_CUSTOMER_ID}"
+    )
     if record.get("run_id") != expected_run_id:
         raise WorkerContractError("Run ID does not match data_through_date")
     if record.get("coverage_area_count") != 10:
-        raise WorkerContractError("The run did not record all ten coverage areas")
+        raise WorkerContractError(
+            "The run did not record all ten coverage areas"
+        )
 
     new_count = 0
     publication_outcomes = []
@@ -277,7 +342,9 @@ def validate_response(response: Any) -> Dict[str, Any]:
             result.get("accepted") is not True
             or result.get("google_ads_changes_made") is not False
         ):
-            raise WorkerContractError("A recommendation was not safely accepted")
+            raise WorkerContractError(
+                "A recommendation was not safely accepted"
+            )
         if result.get("counts_as_new_recommendation") is True:
             new_count += 1
         publication_outcomes.append(
@@ -298,9 +365,13 @@ def validate_response(response: Any) -> Dict[str, Any]:
             "recommendations_publish_recommendation",
             "recommendations_record_enrollment_run",
         }:
-            result = _json_object(call.get("output"), f"{call.get('name')} output")
+            result = _json_object(
+                call.get("output"), f"{call.get('name')} output"
+            )
             if result.get("google_ads_changes_made") is not False:
-                raise WorkerContractError("A portal action lacked the no-change proof")
+                raise WorkerContractError(
+                    "A portal action lacked the no-change proof"
+                )
 
     return {
         "status": "succeeded",
