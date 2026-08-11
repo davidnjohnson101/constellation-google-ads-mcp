@@ -127,6 +127,13 @@ class RecommendationWorkerTest(unittest.TestCase):
         self.assertIn("use a separate", RUNNER_PROMPT)
         self.assertIn("without segments.date", RUNNER_PROMPT)
 
+    def test_runner_contract_forbids_campaign_goal_ordering(self):
+        self.assertIn(
+            "never put\n    campaign_conversion_goal.campaign in orderings",
+            RUNNER_PROMPT,
+        )
+        self.assertIn("rejects it in ORDER BY", RUNNER_PROMPT)
+
     def test_runner_contract_uses_the_controlled_bmw_publication_identity(self):
         self.assertIn(
             "rule_key=conversion-goals:exclude-vdp-page-views:v1",
@@ -224,6 +231,58 @@ class RecommendationWorkerTest(unittest.TestCase):
                     "metrics.conversion_last_conversion_date",
                 ],
                 "conditions": ["campaign.status = 'ENABLED'"],
+                "orderings": [],
+            }
+        )
+
+        result = validate_response(response)
+
+        self.assertEqual(result["status"], "succeeded")
+
+    def test_rejects_campaign_goal_campaign_in_orderings(self):
+        response = successful_response()
+        search_call = next(
+            item
+            for item in response["output"]
+            if item["name"] == "search_search"
+        )
+        search_call["arguments"] = json.dumps(
+            {
+                "customer_id": BMW_CUSTOMER_ID,
+                "resource": "campaign_conversion_goal",
+                "fields": [
+                    "campaign_conversion_goal.campaign",
+                    "campaign_conversion_goal.category",
+                ],
+                "conditions": [],
+                "orderings": [
+                    "campaign_conversion_goal.campaign ASC",
+                ],
+            }
+        )
+
+        with self.assertRaisesRegex(
+            WorkerContractError,
+            "campaign_conversion_goal.campaign is not sortable",
+        ):
+            validate_response(response)
+
+    def test_allows_campaign_goal_campaign_without_ordering(self):
+        response = successful_response()
+        search_call = next(
+            item
+            for item in response["output"]
+            if item["name"] == "search_search"
+        )
+        search_call["arguments"] = json.dumps(
+            {
+                "customer_id": BMW_CUSTOMER_ID,
+                "resource": "campaign_conversion_goal",
+                "fields": [
+                    "campaign_conversion_goal.campaign",
+                    "campaign_conversion_goal.category",
+                ],
+                "conditions": [],
                 "orderings": [],
             }
         )
