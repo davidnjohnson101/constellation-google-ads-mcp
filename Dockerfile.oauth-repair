@@ -1,0 +1,8 @@
+# Preserve the exact deployed application and dependencies while repairing auth.
+FROM us-central1-docker.pkg.dev/durable-stack-502219-q0/cloud-run-source-deploy/google-ads-mcp@sha256:c78768d8965cc631852c2d73c79c2dea3d9243840f0efd9d6e8cd30c211ecb0b
+RUN uv pip install --system "redis==5.3.1"
+COPY ads_mcp/auth_storage.py /app/ads_mcp/auth_storage.py
+COPY ads_mcp/auth_storage.py /usr/local/lib/python3.11/site-packages/ads_mcp/auth_storage.py
+COPY ads_mcp/log_redaction.py /app/ads_mcp/log_redaction.py
+COPY ads_mcp/log_redaction.py /usr/local/lib/python3.11/site-packages/constellation_log_redaction.py
+RUN printf 'import constellation_log_redaction; constellation_log_redaction.configure_log_redaction()\n' > /usr/local/lib/python3.11/site-packages/constellation_redaction.pth

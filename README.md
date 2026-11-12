@@ -214,6 +214,21 @@ To enable it, set the following environment variables:
 - `GOOGLE_ADS_MCP_STORAGE_REDIS_URL`: (Optional) Redis URL for `redis` persistent storage.
 - `GOOGLE_ADS_MCP_STORAGE_ENCRYPTION_KEY`: (Optional) Encryption key for stored OAuth tokens.
 - `GOOGLE_ADS_MCP_STORAGE_DISABLE_ENCRYPTION`: (Optional) Set to `true` to disable token encryption.
+- `GOOGLE_ADS_MCP_STORAGE_NAMESPACE`: Collection prefix when sharing a Redis database. Cloud Run defaults to `constellation-google-ads`.
+
+On Cloud Run, interactive OAuth requires Redis and encrypted storage; missing
+configuration fails at startup instead of silently saving logins on the temporary
+container filesystem. Set `GOOGLE_ADS_MCP_STORAGE_TYPE=redis`, supply
+`GOOGLE_ADS_MCP_STORAGE_REDIS_URL` from Secret Manager, and retain the same
+`GOOGLE_ADS_MCP_JWT_SIGNING_KEY` across revisions. That signing key also derives
+the storage encryption key unless a separate encryption key is provided.
+Keep the namespace stable across deployments and distinct from other services.
+Existing connections lost by the old storage need one reconnect after migration.
+
+Credential values are redacted from Python log messages, request URLs, and
+exception traces before handlers receive them. Routine HTTP transport logging
+is also reduced to warnings. Previously stored Cloud Logging entries are
+unaffected by this change.
 
 Once this is enabled, you can authenticate to the API through your MCP client.
 
@@ -431,7 +446,7 @@ Make sure to set the required environment variables:
 - `GOOGLE_ADS_MCP_OAUTH_CLIENT_SECRET`: The OAuth Client secret you want the MCP server to use.
 - `GOOGLE_ADS_MCP_BASE_URL`: The base URL where your MCP server is accessible: this will be automatically assigned by Google Cloud Run after your first deployment. You can update the environment variables after deployment. 
 - `GOOGLE_ADS_MCP_JWT_SIGNING_KEY`: (Recommended for production) Persistent JWT signing key across Cloud Run instances.
-- `GOOGLE_ADS_MCP_STORAGE_TYPE` / `GOOGLE_ADS_MCP_STORAGE_REDIS_URL`: (Recommended for production) Storage backend (e.g. `redis`) to persist OAuth tokens across instances.
+- `GOOGLE_ADS_MCP_STORAGE_TYPE` / `GOOGLE_ADS_MCP_STORAGE_REDIS_URL`: Required for interactive OAuth on Cloud Run; use `redis` to persist OAuth tokens across instances.
 - `FASTMCP_HOST`: Set this to `0.0.0.0` to allow FastMCP to accept connections from all IP addresses.
 
 ```shell
