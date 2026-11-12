@@ -32,6 +32,12 @@ def create_client_storage() -> Any:
     st_type = os.environ.get("GOOGLE_ADS_MCP_STORAGE_TYPE")
     st_path = os.environ.get("GOOGLE_ADS_MCP_STORAGE_PATH")
     r_url = os.environ.get("GOOGLE_ADS_MCP_STORAGE_REDIS_URL")
+    cloud_run = bool(os.environ.get("K_SERVICE"))
+
+    if cloud_run and (st_type or ("redis" if r_url else "")).lower() != "redis":
+        raise ValueError("Cloud Run OAuth requires persistent shared Redis storage.")
+    if cloud_run and not r_url:
+        raise ValueError("Cloud Run OAuth requires a persistent shared Redis URL.")
 
     if not st_type:
         if r_url:
@@ -72,7 +78,17 @@ def create_client_storage() -> Any:
         "GOOGLE_ADS_MCP_STORAGE_DISABLE_ENCRYPTION", ""
     ).lower() in ("true", "1", "yes")
 
+    namespace = os.environ.get("GOOGLE_ADS_MCP_STORAGE_NAMESPACE")
+    if cloud_run and not namespace:
+        namespace = "constellation-google-ads"
+    if namespace:
+        from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
+
+        store = PrefixCollectionsWrapper(key_value=store, prefix=namespace)
+
     if dis_enc:
+        if cloud_run:
+            raise ValueError("Cloud Run OAuth requires encrypted persistent storage.")
         return store
 
     enc_key = os.environ.get("GOOGLE_ADS_MCP_STORAGE_ENCRYPTION_KEY")
@@ -84,9 +100,7 @@ def create_client_storage() -> Any:
     fernet: Fernet | None = None
     if enc_key:
         try:
-            fernet = Fernet(
-                enc_key.encode() if isinstance(enc_key, str) else enc_key
-            )
+            fernet = Fernet(enc_key.encode() if isinstance(enc_key, str) else enc_key)
         except Exception:
             derived_bytes = derive_jwt_key(
                 high_entropy_material=enc_key,
@@ -110,4 +124,6 @@ def create_client_storage() -> Any:
             fernet=fernet,
             raise_on_decryption_error=False,
         )
+    if cloud_run:
+        raise ValueError("Cloud Run OAuth requires a stable storage encryption key.")
     return store
