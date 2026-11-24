@@ -6,3 +6,4 @@ COPY ads_mcp/tools/negatives.py /app/ads_mcp/tools/negatives.py
 COPY ads_mcp/tools/negatives.py /usr/local/lib/python3.11/site-packages/ads_mcp/tools/negatives.py
 COPY ads_mcp/tools_config.yaml /app/ads_mcp/tools_config.yaml
 COPY ads_mcp/tools_config.yaml /usr/local/lib/python3.11/site-packages/ads_mcp/tools_config.yaml
+RUN python -c "import asyncio, importlib.metadata; from ads_mcp.tools.negatives import negatives_mcp; names={tool.name for tool in asyncio.run(negatives_mcp.list_tools())}; assert names == {'preview_add_negative_keywords', 'apply_add_negative_keywords'}; print('Verified negative keyword tools with FastMCP', importlib.metadata.version('fastmcp'))"

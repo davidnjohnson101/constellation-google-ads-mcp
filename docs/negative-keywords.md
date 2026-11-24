@@ -72,6 +72,9 @@ serving image. A plain rebuild with the root Dockerfile would not preserve
 that repair. The deployment script pins the currently serving digest, keeps
 the existing OAuth and Redis configuration, adds a dedicated preview secret,
 and stages a revision with zero production traffic.
+The source package pins FastMCP 3.2 and MCP SDK 1.x so the checked protocol
+snapshots remain reproducible. The overlay build checks the actual preserved
+runtime can import and expose both new tools before it produces an image.
 
 Run `scripts/deploy_negative_keywords.ps1` from this repository using an
 authenticated Google Cloud CLI. It requires permission to build images,

@@ -55,6 +55,6 @@ tests/tools_mounting_test.py, tests/smoke/golden_tools_list.json.
 **Files:** README.md, docs/negative-keywords.md, scripts/deploy_negative_keywords.ps1.
 
 - [x] Document approval instructions, environment opt-in, outcomes and deployment command.
-- [ ] Run full unit and smoke suites plus Black and git diff checks.
+- [x] Run full unit and smoke suites plus Black and git diff checks.
 - [x] Obtain a focused whole-branch review and fix significant findings with regression tests.
-- [ ] Prepare branch/PR and exact deployment readiness; report any unverified live behavior.
+- [x] Prepare branch/PR and exact deployment readiness; report any unverified live behavior.
