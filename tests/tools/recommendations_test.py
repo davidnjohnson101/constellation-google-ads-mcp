@@ -50,7 +50,9 @@ COVERAGE = [
     {
         "area": area,
         "status": (
-            "recommendation_found" if area == "conversion_tracking" else "reviewed"
+            "recommendation_found"
+            if area == "conversion_tracking"
+            else "reviewed"
         ),
         "note": f"Read-only evidence checked for {area}.",
     }
@@ -167,7 +169,9 @@ class RecommendationPublishingTest(unittest.TestCase):
     def test_publishes_to_fixed_portal_without_ads_write(
         self, mock_get_service, mock_urlopen
     ):
-        mock_get_service.return_value.search_stream.return_value = _hierarchy_response()
+        mock_get_service.return_value.search_stream.return_value = (
+            _hierarchy_response()
+        )
         mock_urlopen.return_value = _Response()
 
         result = publish_recommendation(**VALID_ARGUMENTS)
@@ -204,7 +208,9 @@ class RecommendationPublishingTest(unittest.TestCase):
         )
         search_call = mock_get_service.return_value.search_stream.call_args
         self.assertEqual(search_call.kwargs["customer_id"], "4599605095")
-        self.assertIn("customer_client.id = 4357201747", search_call.kwargs["query"])
+        self.assertIn(
+            "customer_client.id = 4357201747", search_call.kwargs["query"]
+        )
 
     @patch.dict(
         "os.environ",
@@ -221,7 +227,9 @@ class RecommendationPublishingTest(unittest.TestCase):
     def test_accepts_legacy_input_contract_with_v14_confirmation(
         self, mock_get_service, mock_urlopen
     ):
-        mock_get_service.return_value.search_stream.return_value = _hierarchy_response()
+        mock_get_service.return_value.search_stream.return_value = (
+            _hierarchy_response()
+        )
         mock_urlopen.return_value = _Response()
         legacy_arguments = {
             key: value
@@ -240,7 +248,9 @@ class RecommendationPublishingTest(unittest.TestCase):
 
         self.assertTrue(result["published"])
         self.assertTrue(result["counts_as_new_recommendation"])
-        payload = json.loads(mock_urlopen.call_args.args[0].data.decode("utf-8"))
+        payload = json.loads(
+            mock_urlopen.call_args.args[0].data.decode("utf-8")
+        )
         self.assertNotIn("identity", payload)
         self.assertNotIn("runId", payload)
 
@@ -259,7 +269,9 @@ class RecommendationPublishingTest(unittest.TestCase):
     def test_rejects_ambiguous_response_without_publication_outcome(
         self, mock_get_service, mock_urlopen
     ):
-        mock_get_service.return_value.search_stream.return_value = _hierarchy_response()
+        mock_get_service.return_value.search_stream.return_value = (
+            _hierarchy_response()
+        )
         mock_urlopen.return_value = _Response(
             {
                 "published": True,
@@ -289,7 +301,9 @@ class RecommendationPublishingTest(unittest.TestCase):
     def test_confirms_duplicate_without_publishing_another_card(
         self, mock_get_service, mock_urlopen
     ):
-        mock_get_service.return_value.search_stream.return_value = _hierarchy_response()
+        mock_get_service.return_value.search_stream.return_value = (
+            _hierarchy_response()
+        )
         mock_urlopen.return_value = _Response(
             {
                 "published": True,
@@ -316,7 +330,9 @@ class RecommendationPublishingTest(unittest.TestCase):
         self.assertTrue(result["published"])
         self.assertFalse(result["counts_as_new_recommendation"])
         self.assertTrue(result["duplicate"])
-        self.assertEqual(result["recommendation_id"], "REC-20260807-BMW-GOALS-001")
+        self.assertEqual(
+            result["recommendation_id"], "REC-20260807-BMW-GOALS-001"
+        )
         self.assertEqual(result["publication_outcome"], "refreshed")
 
     @patch.dict(
@@ -334,7 +350,9 @@ class RecommendationPublishingTest(unittest.TestCase):
     def test_surfaces_lifecycle_suppression_without_counting_it(
         self, mock_get_service, mock_urlopen
     ):
-        mock_get_service.return_value.search_stream.return_value = _hierarchy_response()
+        mock_get_service.return_value.search_stream.return_value = (
+            _hierarchy_response()
+        )
         mock_urlopen.return_value = _Response(
             {
                 "published": True,
@@ -364,7 +382,9 @@ class RecommendationPublishingTest(unittest.TestCase):
         self.assertTrue(result["published"])
         self.assertFalse(result["counts_as_new_recommendation"])
         self.assertEqual(result["publication_outcome"], "suppressed")
-        self.assertEqual(result["suppression_reason"], "resolved_issue_unchanged")
+        self.assertEqual(
+            result["suppression_reason"], "resolved_issue_unchanged"
+        )
 
     @patch.dict(
         "os.environ",
@@ -381,7 +401,9 @@ class RecommendationPublishingTest(unittest.TestCase):
     def test_counts_a_later_regression_reopened_for_review(
         self, mock_get_service, mock_urlopen
     ):
-        mock_get_service.return_value.search_stream.return_value = _hierarchy_response()
+        mock_get_service.return_value.search_stream.return_value = (
+            _hierarchy_response()
+        )
         mock_urlopen.return_value = _Response(
             {
                 "published": True,
@@ -428,7 +450,9 @@ class RecommendationPublishingTest(unittest.TestCase):
     def test_fails_closed_on_malformed_v14_confirmation(
         self, mock_get_service, mock_urlopen
     ):
-        mock_get_service.return_value.search_stream.return_value = _hierarchy_response()
+        mock_get_service.return_value.search_stream.return_value = (
+            _hierarchy_response()
+        )
         base = _Response().body
         mutations = {
             "submitted id": lambda body: body["publication"].update(
@@ -444,7 +468,9 @@ class RecommendationPublishingTest(unittest.TestCase):
             "wrong duplicate flag": lambda body: body["publication"].update(
                 {"duplicate": True}
             ),
-            "missing outcome envelope": lambda body: body.update({"publication": {}}),
+            "missing outcome envelope": lambda body: body.update(
+                {"publication": {}}
+            ),
             "blank suppression reason": lambda body: body["publication"].update(
                 {
                     "outcome": "suppressed",
@@ -475,7 +501,9 @@ class RecommendationPublishingTest(unittest.TestCase):
     def test_rejects_partial_or_invalid_semantic_identity(
         self, mock_get_service, mock_urlopen
     ):
-        mock_get_service.return_value.search_stream.return_value = _hierarchy_response()
+        mock_get_service.return_value.search_stream.return_value = (
+            _hierarchy_response()
+        )
         partial = {**VALID_ARGUMENTS, "proposed_state_key": None}
         with self.assertRaisesRegex(ToolError, "Semantic identity requires"):
             publish_recommendation(**partial)
@@ -549,8 +577,8 @@ class RecommendationPublishingTest(unittest.TestCase):
     def test_allows_indirect_enabled_client_without_allowlist(
         self, mock_get_service, mock_urlopen
     ):
-        mock_get_service.return_value.search_stream.return_value = _hierarchy_response(
-            level=3
+        mock_get_service.return_value.search_stream.return_value = (
+            _hierarchy_response(level=3)
         )
         mock_urlopen.return_value = _Response()
 
@@ -580,8 +608,8 @@ class RecommendationPublishingTest(unittest.TestCase):
     @patch("ads_mcp.tools.recommendations.request.urlopen")
     @patch("ads_mcp.tools.recommendations.utils.get_googleads_service")
     def test_rejects_disabled_customer(self, mock_get_service, mock_urlopen):
-        mock_get_service.return_value.search_stream.return_value = _hierarchy_response(
-            status="CANCELED"
+        mock_get_service.return_value.search_stream.return_value = (
+            _hierarchy_response(status="CANCELED")
         )
 
         with self.assertRaisesRegex(ToolError, "not an enabled client"):
@@ -596,8 +624,8 @@ class RecommendationPublishingTest(unittest.TestCase):
     @patch("ads_mcp.tools.recommendations.request.urlopen")
     @patch("ads_mcp.tools.recommendations.utils.get_googleads_service")
     def test_rejects_manager_customer(self, mock_get_service, mock_urlopen):
-        mock_get_service.return_value.search_stream.return_value = _hierarchy_response(
-            manager=True
+        mock_get_service.return_value.search_stream.return_value = (
+            _hierarchy_response(manager=True)
         )
 
         with self.assertRaisesRegex(ToolError, "not an enabled client"):
@@ -653,7 +681,9 @@ class AccountScorecardPublishingTest(unittest.TestCase):
     def test_replaces_portal_snapshot_without_ads_write(
         self, mock_get_service, mock_urlopen
     ):
-        mock_get_service.return_value.search_stream.return_value = _hierarchy_response()
+        mock_get_service.return_value.search_stream.return_value = (
+            _hierarchy_response()
+        )
         mock_urlopen.return_value = _Response(
             {
                 "published": True,
@@ -685,7 +715,9 @@ class AccountScorecardPublishingTest(unittest.TestCase):
     def test_rejects_incomplete_or_invalid_snapshot(
         self, mock_get_service, mock_urlopen
     ):
-        mock_get_service.return_value.search_stream.return_value = _hierarchy_response()
+        mock_get_service.return_value.search_stream.return_value = (
+            _hierarchy_response()
+        )
         incomplete = {
             **SCORECARD_ARGUMENTS,
             "periods": SCORECARD_ARGUMENTS["periods"][:-1],
@@ -696,7 +728,11 @@ class AccountScorecardPublishingTest(unittest.TestCase):
         invalid = {
             **SCORECARD_ARGUMENTS,
             "periods": [
-                ({**period, "cost_micros": -1} if period["key"] == "mtd" else period)
+                (
+                    {**period, "cost_micros": -1}
+                    if period["key"] == "mtd"
+                    else period
+                )
                 for period in SCORECARD_ARGUMENTS["periods"]
             ],
         }
@@ -821,9 +857,9 @@ class EnrollmentToolsTest(unittest.TestCase):
             level=3,
             descriptive_name="Nested Client",
         )[0].results[0]
-        manager = _hierarchy_response(customer_id="2660187856", level=1, manager=True)[
-            0
-        ].results[0]
+        manager = _hierarchy_response(
+            customer_id="2660187856", level=1, manager=True
+        )[0].results[0]
         mock_get_service.return_value.search_stream.return_value = [
             SimpleNamespace(results=[direct, nested, manager])
         ]
@@ -957,7 +993,9 @@ class EnrollmentToolsTest(unittest.TestCase):
     @patch.dict("os.environ", portal_environment, clear=True)
     @patch("ads_mcp.tools.recommendations.request.urlopen")
     def test_failed_run_may_record_without_coverage(self, mock_urlopen):
-        mock_urlopen.return_value = _Response({"recorded": True, "duplicate": False})
+        mock_urlopen.return_value = _Response(
+            {"recorded": True, "duplicate": False}
+        )
 
         result = record_enrollment_run(
             run_id="RUN-20260808-4357201747-FAILED",
@@ -970,7 +1008,9 @@ class EnrollmentToolsTest(unittest.TestCase):
 
         self.assertTrue(result["recorded"])
         self.assertEqual(result["coverage_area_count"], 0)
-        payload = json.loads(mock_urlopen.call_args.args[0].data.decode("utf-8"))
+        payload = json.loads(
+            mock_urlopen.call_args.args[0].data.decode("utf-8")
+        )
         self.assertEqual(
             payload,
             {
@@ -1125,7 +1165,9 @@ class EnrollmentToolsTest(unittest.TestCase):
                 "note",
                 "2026-08-08T10:00:00Z",
             )
-        with self.assertRaisesRegex(ToolError, "must have recommendation_count 0"):
+        with self.assertRaisesRegex(
+            ToolError, "must have recommendation_count 0"
+        ):
             record_enrollment_run(
                 "RUN-20260808-4357201747",
                 "4357201747",

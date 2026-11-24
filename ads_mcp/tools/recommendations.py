@@ -103,9 +103,16 @@ def _validate_text(name: str, value: str, maximum: int = 5_000) -> str:
 
 
 def _validate_list(name: str, values: List[str]) -> List[str]:
-    if not isinstance(values, list) or not values or len(values) > _MAX_LIST_ITEMS:
+    if (
+        not isinstance(values, list)
+        or not values
+        or len(values) > _MAX_LIST_ITEMS
+    ):
         raise ToolError(f"{name} must contain 1 to {_MAX_LIST_ITEMS} items.")
-    return [_validate_text(f"{name} item", value, _MAX_ITEM_LENGTH) for value in values]
+    return [
+        _validate_text(f"{name} item", value, _MAX_ITEM_LENGTH)
+        for value in values
+    ]
 
 
 def _validate_iso_date(name: str, value: str) -> str:
@@ -172,7 +179,9 @@ def _validate_semantic_identity(
         raise ToolError("affected_resource_keys must contain 1 to 50 items.")
     resource_keys = []
     for value in affected_resource_keys:
-        normalized = _validate_text("affected_resource_keys item", value, 180).lower()
+        normalized = _validate_text(
+            "affected_resource_keys item", value, 180
+        ).lower()
         if not _RESOURCE_KEY_PATTERN.fullmatch(normalized):
             raise ToolError(
                 "affected_resource_keys items must use lowercase letters, digits, "
@@ -187,7 +196,9 @@ def _validate_semantic_identity(
         "ruleKey": semantic_key("rule_key", rule_key),
         "resourceKeys": sorted(set(resource_keys)),
         "conditionKey": semantic_key("condition_key", condition_key),
-        "proposedStateKey": semantic_key("proposed_state_key", proposed_state_key),
+        "proposedStateKey": semantic_key(
+            "proposed_state_key", proposed_state_key
+        ),
     }
 
 
@@ -201,7 +212,9 @@ def _validate_analysis_coverage(
                 "coverage must report all 10 analysis areas for a completed run."
             )
         return []
-    if not isinstance(coverage, list) or len(coverage) > len(_COVERAGE_AREA_LABELS):
+    if not isinstance(coverage, list) or len(coverage) > len(
+        _COVERAGE_AREA_LABELS
+    ):
         raise ToolError("coverage must contain no more than 10 analysis areas.")
 
     normalized = {}
@@ -234,15 +247,20 @@ def _validate_analysis_coverage(
     if require_complete and seen != set(_COVERAGE_AREA_LABELS):
         missing = sorted(set(_COVERAGE_AREA_LABELS) - seen)
         raise ToolError(
-            "coverage must report all 10 analysis areas; missing: " + ", ".join(missing)
+            "coverage must report all 10 analysis areas; missing: "
+            + ", ".join(missing)
         )
-    return [normalized[area] for area in _COVERAGE_AREA_LABELS if area in normalized]
+    return [
+        normalized[area] for area in _COVERAGE_AREA_LABELS if area in normalized
+    ]
 
 
 def _validate_scorecard_periods(
     periods: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    if not isinstance(periods, list) or len(periods) != len(_SCORECARD_PERIOD_KEYS):
+    if not isinstance(periods, list) or len(periods) != len(
+        _SCORECARD_PERIOD_KEYS
+    ):
         raise ToolError(
             "periods must contain exactly the six required scorecard windows."
         )
@@ -258,7 +276,9 @@ def _validate_scorecard_periods(
                 "Scorecard period keys must be unique and use the required windows."
             )
         seen.add(key)
-        start_date = _validate_iso_date(f"{key} start_date", period.get("start_date"))
+        start_date = _validate_iso_date(
+            f"{key} start_date", period.get("start_date")
+        )
         end_date = _validate_iso_date(f"{key} end_date", period.get("end_date"))
         if start_date > end_date:
             raise ToolError(f"{key} start_date cannot follow end_date.")
@@ -266,8 +286,14 @@ def _validate_scorecard_periods(
         numeric = {}
         for field in ("cost_micros", "impressions", "clicks"):
             value = period.get(field)
-            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-                raise ToolError(f"{key} {field} must be a non-negative integer.")
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+            ):
+                raise ToolError(
+                    f"{key} {field} must be a non-negative integer."
+                )
             numeric[field] = value
         conversions = period.get("conversions")
         if (
@@ -442,7 +468,9 @@ def _normalize_customer_id(name: str, value: str) -> str:
 
 def _allowed_customer_ids() -> set[str] | None:
     """Returns the optional static restriction layered over MCC access."""
-    raw = os.environ.get("RECOMMENDATION_CENTER_ALLOWED_CUSTOMER_IDS", "").strip()
+    raw = os.environ.get(
+        "RECOMMENDATION_CENTER_ALLOWED_CUSTOMER_IDS", ""
+    ).strip()
     if not raw:
         return None
 
@@ -467,7 +495,10 @@ def _authorize_customer(customer_id: str) -> None:
         )
 
     allowed_customer_ids = _allowed_customer_ids()
-    if allowed_customer_ids is not None and customer_id not in allowed_customer_ids:
+    if (
+        allowed_customer_ids is not None
+        and customer_id not in allowed_customer_ids
+    ):
         raise ToolError(
             "This customer id is outside the configured publishing restriction."
         )
@@ -647,7 +678,9 @@ def sync_customer_catalog() -> Dict[str, Any]:
         ) from exc
 
     if not accounts:
-        raise ToolError("No eligible client accounts were found beneath the MCC.")
+        raise ToolError(
+            "No eligible client accounts were found beneath the MCC."
+        )
     status, result = _portal_request(
         "POST", "/api/accounts/catalog", {"accounts": accounts}
     )
@@ -678,7 +711,11 @@ def get_due_enrollments(limit: int = 3) -> Dict[str, Any]:
     Args:
         limit: Bounded number of due accounts to return, from 1 through 10.
     """
-    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10:
+    if (
+        isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or not 1 <= limit <= 10
+    ):
         raise ToolError("limit must be an integer from 1 through 10.")
     allowed_customer_ids = _allowed_customer_ids()
     query: Dict[str, Any] = {"limit": limit}
@@ -754,13 +791,17 @@ def record_enrollment_run(
     run_id = _validate_run_id(run_id)
     customer_id = _normalize_customer_id("customer_id", customer_id)
     if status not in {"succeeded", "failed", "no_recommendation"}:
-        raise ToolError("status must be succeeded, failed, or no_recommendation.")
+        raise ToolError(
+            "status must be succeeded, failed, or no_recommendation."
+        )
     if (
         isinstance(recommendation_count, bool)
         or not isinstance(recommendation_count, int)
         or not 0 <= recommendation_count <= 100
     ):
-        raise ToolError("recommendation_count must be an integer from 0 through 100.")
+        raise ToolError(
+            "recommendation_count must be an integer from 0 through 100."
+        )
     if status in {"failed", "no_recommendation"} and recommendation_count != 0:
         raise ToolError(
             "failed and no_recommendation runs must have recommendation_count 0."
@@ -771,7 +812,9 @@ def record_enrollment_run(
             "data_through_date is required for succeeded and no_recommendation runs."
         )
     if (data_through_date is None) != (coverage is None):
-        raise ToolError("data_through_date and coverage must be supplied together.")
+        raise ToolError(
+            "data_through_date and coverage must be supplied together."
+        )
     normalized_data_through_date = (
         _validate_iso_date("data_through_date", data_through_date)
         if data_through_date is not None
@@ -793,9 +836,13 @@ def record_enrollment_run(
         payload["dataThroughDate"] = normalized_data_through_date
     if coverage is not None:
         payload["coverage"] = normalized_coverage
-    response_status, result = _portal_request("POST", "/api/accounts/runs", payload)
+    response_status, result = _portal_request(
+        "POST", "/api/accounts/runs", payload
+    )
     if response_status not in (200, 201) or result.get("recorded") is not True:
-        raise ToolError("Recommendation Center did not confirm the enrollment run.")
+        raise ToolError(
+            "Recommendation Center did not confirm the enrollment run."
+        )
     duplicate = result.get("duplicate", False)
     if not isinstance(duplicate, bool):
         raise ToolError(
@@ -846,7 +893,9 @@ def publish_account_scorecard(
     """
     customer_id = _normalize_customer_id("customer_id", customer_id)
     _authorize_customer(customer_id)
-    data_through_date = _validate_iso_date("data_through_date", data_through_date)
+    data_through_date = _validate_iso_date(
+        "data_through_date", data_through_date
+    )
     captured_at = _validate_iso_timestamp("captured_at", captured_at)
 
     payload = {
@@ -999,7 +1048,9 @@ def publish_recommendation(
         proposed_state_key: Stable lowercase identifier for the exact proposed
             target state. Supply all four semantic identity fields together.
     """
-    recommendation_id = _validate_text("recommendation_id", recommendation_id, 80)
+    recommendation_id = _validate_text(
+        "recommendation_id", recommendation_id, 80
+    )
     if not _RECOMMENDATION_ID_PATTERN.fullmatch(recommendation_id):
         raise ToolError(
             "recommendation_id may contain only uppercase letters, digits, underscores, and hyphens."
@@ -1047,8 +1098,12 @@ def publish_recommendation(
         "validationCriteria": _validate_list(
             "validation_criteria", validation_criteria
         ),
-        "rollbackTriggers": _validate_list("rollback_triggers", rollback_triggers),
-        "rollback": _validate_text("rollback_instructions", rollback_instructions),
+        "rollbackTriggers": _validate_list(
+            "rollback_triggers", rollback_triggers
+        ),
+        "rollback": _validate_text(
+            "rollback_instructions", rollback_instructions
+        ),
         "evidenceCapturedAt": validated_evidence_captured_at,
     }
     if validated_run_id is not None:

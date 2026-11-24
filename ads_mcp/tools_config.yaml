@@ -8,3 +8,5 @@ namespaces:
   search: true
   metadata: true
   recommendations: true
+  # The tools also require explicit deployment enablement and account scope.
+  negatives: true
