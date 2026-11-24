@@ -58,3 +58,37 @@ class NegativeToolMountingTest(unittest.TestCase):
         tools = self.mounted("ads_mcp/worker_tools_config.yaml")
         self.assertFalse(any(name.startswith("negatives_") for name in tools))
         self.assertFalse(ToolsConfig().is_namespace_enabled("negatives"))
+
+    def test_management_catalog_has_only_previews_and_approved_apply(self):
+        tools = self.mounted("ads_mcp/tools_config.yaml")
+        names = {name for name in tools if name.startswith("management_")}
+        self.assertEqual(
+            names,
+            {
+                "management_preview_add_keywords",
+                "management_preview_set_keyword_status",
+                "management_preview_remove_keyword",
+                "management_preview_set_campaign_status",
+                "management_preview_set_daily_budget",
+                "management_apply_approved_change",
+            },
+        )
+        apply = tools["management_apply_approved_change"]
+        self.assertFalse(apply["annotations"]["readOnlyHint"])
+        self.assertTrue(apply["annotations"]["destructiveHint"])
+        self.assertFalse(
+            apply["parameters"]["properties"]["approved"]["default"]
+        )
+        self.assertEqual(
+            set(apply["parameters"]["properties"]),
+            {"preview_token", "approved"},
+        )
+        for name in names - {"management_apply_approved_change"}:
+            self.assertTrue(tools[name]["annotations"]["readOnlyHint"])
+        self.assertFalse(
+            any(
+                name.startswith("management_")
+                for name in self.mounted("ads_mcp/worker_tools_config.yaml")
+            )
+        )
+        self.assertFalse(ToolsConfig().is_namespace_enabled("management"))

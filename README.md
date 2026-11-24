@@ -500,6 +500,62 @@ be simpler.
 How many active campaigns do I have for customer id 1234567890
 ```
 
+## Approved Google Ads management
+
+The existing interactive server supports these preview/apply operations:
+
+| Operation | Preview tool | Scope |
+| --- | --- | --- |
+| Add direct negatives | `negatives_preview_add_negative_keywords` | Campaigns and Search ad groups |
+| Add positive keywords | `management_preview_add_keywords` | Search ad groups; explicit match and ENABLED/PAUSED status |
+| Pause/enable positive keyword | `management_preview_set_keyword_status` | One existing Search keyword |
+| Remove a keyword | `management_preview_remove_keyword` | Positive Search keyword or direct campaign/ad-group negative; explicit negative flag |
+| Pause/enable campaign | `management_preview_set_campaign_status` | Existing campaign; budget/currency included in preview |
+| Change average daily budget | `management_preview_set_daily_budget` | Existing DAILY budget; all nonremoved campaigns sharing it shown |
+
+Show the user the exact account, destination, keyword text/match/status or
+old/new campaign status/budget and every affected campaign. Obtain explicit
+approval of that preview before calling `management_apply_approved_change`
+(or `negatives_apply_add_negative_keywords` for the existing negative-add flow).
+An `approved=true` argument is the host's assertion of user approval, not an
+independent human authentication mechanism. Configure the host to ask for write
+tools and never infer approval from a request for analysis or a preview.
+
+Management previews expire after ten minutes and bind the current Google access
+token, MCC, target, before-state and exact change. OAuth refresh can require a
+fresh preview. Apply rechecks access/state, validates with Google, then consumes
+an issued preview permit with atomic Redis `GETDEL` before the single live request.
+Missing, expired or evicted permits fail closed. A Redis account lock serializes
+management applies across replicas and campaigns sharing a budget. It never
+automatically retries a mutation. `observed_applied` means readback matches but
+the API response did not confirm it; `uncertain` requires investigation and a
+fresh approved preview before any further attempt. Google Ads has no conditional
+update transaction spanning reads and writes, so a concurrent external edit can
+still race the final check; post-write verification reports mismatches honestly.
+
+Amounts are decimal strings in explicit account currency, with at most six
+decimal places. Average daily budgets are not hard daily spending caps. Shared
+budget edits affect every campaign referencing that budget. Total budgets,
+budget creation/assignment/sharing changes, shared negative list administration,
+campaign removal, bids, ads and arbitrary mutations are outside this release.
+Keyword text or match edits use separately approved remove/add operations;
+removal cannot restore the original criterion ID.
+
+Deployment additionally requires `GOOGLE_ADS_MCP_ENABLE_MANAGEMENT_WRITES=true`
+and `GOOGLE_ADS_MCP_STORAGE_REDIS_URL`. Existing negative-write enablement, account
+scope and dedicated preview-signing secret remain required. Management uses a
+separate derived signing domain and a separate Redis key prefix; it does not
+modify OAuth records. The analysis worker and fallback configuration expose no
+Ads write namespace. No new Google OAuth scope or client is needed.
+
+For the existing Cloud Run deployment, use
+`scripts/deploy_negative_keywords.ps1 -EnableManagement` to extend the exact
+serving image and stage the same service at zero traffic. This preserves the
+deployed OAuth repair. Review the staged revision before traffic promotion, then
+use **Refresh tools** on the existing plugin's settings page. Keep its identity,
+connection and audience. Do not rebuild from the root Dockerfile until the
+separate deployed OAuth repair is reconciled into main.
+
 ## Contributing
 
 Contributions welcome! See the [Contributing Guide](CONTRIBUTING.md).

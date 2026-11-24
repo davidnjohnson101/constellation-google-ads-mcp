@@ -4,6 +4,11 @@ ARG BASE_IMAGE=us-central1-docker.pkg.dev/durable-stack-502219-q0/cloud-run-sour
 FROM ${BASE_IMAGE}
 COPY ads_mcp/tools/negatives.py /app/ads_mcp/tools/negatives.py
 COPY ads_mcp/tools/negatives.py /usr/local/lib/python3.11/site-packages/ads_mcp/tools/negatives.py
+COPY ads_mcp/tools/management.py /app/ads_mcp/tools/management.py
+COPY ads_mcp/tools/management.py /usr/local/lib/python3.11/site-packages/ads_mcp/tools/management.py
+COPY ads_mcp/management_state.py ads_mcp/management_mutation.py /app/ads_mcp/
+COPY ads_mcp/management_state.py ads_mcp/management_mutation.py /usr/local/lib/python3.11/site-packages/ads_mcp/
 COPY ads_mcp/tools_config.yaml /app/ads_mcp/tools_config.yaml
 COPY ads_mcp/tools_config.yaml /usr/local/lib/python3.11/site-packages/ads_mcp/tools_config.yaml
 RUN python -c "import asyncio, importlib.metadata; from ads_mcp.tools.negatives import negatives_mcp; names={tool.name for tool in asyncio.run(negatives_mcp.list_tools())}; assert names == {'preview_add_negative_keywords', 'apply_add_negative_keywords'}; print('Verified negative keyword tools with FastMCP', importlib.metadata.version('fastmcp'))"
+RUN python -c "import asyncio, redis; from ads_mcp.tools.management import management_mcp; names={t.name for t in asyncio.run(management_mcp.list_tools())}; assert names == {'preview_add_keywords', 'preview_set_keyword_status', 'preview_remove_keyword', 'preview_set_campaign_status', 'preview_set_daily_budget', 'apply_approved_change'}; print('Verified six management tools and Redis', redis.__version__)"

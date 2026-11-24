@@ -1,4 +1,5 @@
 namespaces:
+  management: false
   negatives: false
   customers: false
   metadata:

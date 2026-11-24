@@ -40,6 +40,295 @@
         }
       },
       "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "readOnlyHint": false
+      },
+      "description": "Apply ONLY a displayed management preview after explicit user approval.\napproved=true asserts the host obtained that specific approval; it is not\nindependent proof of a human click. Same caller, ten-minute expiry, unchanged\nlive state, revalidation and durable single-use consumption are mandatory.\nNo automatic write retry. Report uncertainty and obtain a fresh preview before\nany further attempt. Existing negative-add previews use their own apply tool.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "approved": {
+            "default": false,
+            "type": "boolean"
+          },
+          "preview_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "preview_token"
+        ],
+        "type": "object"
+      },
+      "name": "management_apply_approved_change",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Validate positive Search keywords without writing. Show destination, text,\nexplicit match type and ENABLED/PAUSED status; obtain approval before apply.\nExisting identical positives are skipped, even if their status differs.\nText and match changes require separately approved remove/add operations.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "ad_group_id": {
+            "type": "string"
+          },
+          "campaign_id": {
+            "type": "string"
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "keywords": {
+            "items": {
+              "additionalProperties": false,
+              "description": "Bare keyword text; match type is always explicit.",
+              "properties": {
+                "match_type": {
+                  "enum": [
+                    "EXACT",
+                    "PHRASE",
+                    "BROAD"
+                  ],
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text",
+                "match_type"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "ENABLED",
+              "PAUSED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "campaign_id",
+          "ad_group_id",
+          "keywords",
+          "status"
+        ],
+        "type": "object"
+      },
+      "name": "management_preview_add_keywords",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Preview removing one positive Search keyword or direct campaign/ad-group\nnegative. Explicitly identify negative=true/false; display exact criterion,\ntext, match and destination for approval. Does not edit shared negative lists.\nRemoval cannot restore the original criterion ID; re-add needs new approval.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "ad_group_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "campaign_id": {
+            "type": "string"
+          },
+          "criterion_id": {
+            "type": "string"
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "negative": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "customer_id",
+          "campaign_id",
+          "criterion_id",
+          "negative"
+        ],
+        "type": "object"
+      },
+      "name": "management_preview_remove_keyword",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Preview campaign ENABLED/PAUSED only. Display account, campaign, current\nbudget/currency and before/after status. Enabling may resume advertising spend.\nObtain explicit approval of this preview before apply; never removes campaigns.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "type": "string"
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ENABLED",
+              "PAUSED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "campaign_id",
+          "status"
+        ],
+        "type": "object"
+      },
+      "name": "management_preview_set_campaign_status",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Preview an existing average DAILY budget amount in exact decimal currency\nunits, e.g. amount='125.50', currency_code='USD'. Show old/new amount and EVERY\naffected campaign, including other campaigns sharing this budget, for explicit\napproval. Average daily budget is not a hard daily spend cap. Only amount_micros\nchanges; no total budgets, new budgets or sharing/assignment changes.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "type": "string"
+          },
+          "campaign_id": {
+            "type": "string"
+          },
+          "currency_code": {
+            "type": "string"
+          },
+          "customer_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "campaign_id",
+          "amount",
+          "currency_code"
+        ],
+        "type": "object"
+      },
+      "name": "management_preview_set_daily_budget",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
+        "openWorldHint": true,
+        "readOnlyHint": true
+      },
+      "description": "Preview pause/enable of one existing positive Search keyword. Show its\nexact text, match type and before/after status and obtain explicit approval.\nNegative criteria cannot be paused; use an approved direct removal instead.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "ad_group_id": {
+            "type": "string"
+          },
+          "campaign_id": {
+            "type": "string"
+          },
+          "criterion_id": {
+            "type": "string"
+          },
+          "customer_id": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ENABLED",
+              "PAUSED"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "campaign_id",
+          "ad_group_id",
+          "criterion_id",
+          "status"
+        ],
+        "type": "object"
+      },
+      "name": "management_preview_set_keyword_status",
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "annotations": {
         "readOnlyHint": true
       },
       "description": "Retrieves the selectable, filterable, and sortable fields for a specific Google Ads resource,\nincluding compatible metrics and segments.\n\nUse this tool to find out which fields you can select, filter by, or sort by\nwhen querying a specific resource (e.g., 'campaign', 'ad_group').\nThis tool also returns metrics and segments that can be selected with the resource.\nTheir names start with 'metrics.' and 'segments.' respectively.\n\nDo not guess fields, you MUST use this tool to discover them before constructing a query for the\n`search` tool.\n\nThe responses of this tool should be cached, as they don't change frequently.\n\nArgs:\n    resource_name: The name of the Google Ads resource (e.g., 'campaign', 'ad_group').",
