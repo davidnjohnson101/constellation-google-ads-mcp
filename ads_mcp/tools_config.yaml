@@ -10,3 +10,4 @@ namespaces:
   recommendations: true
   # The tools also require explicit deployment enablement and account scope.
   negatives: true
+  management: true

@@ -15,7 +15,7 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_access_token
 from mcp.types import ToolAnnotations
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StrictBool
 
 from ads_mcp import utils
 
@@ -316,9 +316,9 @@ def _encode(payload: dict, key: bytes) -> str:
     return body + "." + signature
 
 
-def _decode(token: str) -> tuple[str, str, dict]:
+def _decode(token: str, max_length: int = 65536) -> tuple[str, str, dict]:
     try:
-        if not isinstance(token, str) or len(token) > 65536:
+        if not isinstance(token, str) or len(token) > max_length:
             raise ValueError()
         body, signature = token.split(".")
         payload = json.loads(
@@ -399,7 +399,7 @@ def preview_add_negative_keywords(
 
 
 def apply_add_negative_keywords(
-    preview_token: str, approved: bool = False
+    preview_token: str, approved: StrictBool = False
 ) -> dict:
     """Apply only the exact additions in an explicitly approved preview.
 
