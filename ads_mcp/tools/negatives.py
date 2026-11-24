@@ -147,7 +147,10 @@ def _keyword_key(item: dict) -> tuple[str, str]:
 
 def _rows(client: Any, customer: str, query: str) -> list:
     try:
-        response = client.get_service("GoogleAdsService").search_stream(
+        # The streaming iterator does not retain its service/channel owner.
+        # Keep it alive until every batch has been consumed.
+        service = client.get_service("GoogleAdsService")
+        response = service.search_stream(
             customer_id=customer, query=query, timeout=30
         )
         return [row for batch in response for row in batch.results]

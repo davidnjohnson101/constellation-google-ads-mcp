@@ -3,6 +3,7 @@
 import importlib
 import os
 import unittest
+import weakref
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -163,6 +164,28 @@ class NegativeKeywordsTest(unittest.TestCase):
     def apply(self, preview):
         return self.n.apply_add_negative_keywords(
             preview_token=preview["preview_token"], approved=True
+        )
+
+    def test_stream_retains_service_until_all_batches_are_consumed(self):
+        class EphemeralService:
+            def search_stream(self, **kwargs):
+                reference = weakref.ref(self)
+
+                def batches():
+                    if reference() is None:
+                        raise RuntimeError(
+                            "Stream removed (Channel deallocated!)"
+                        )
+                    yield SimpleNamespace(results=["row"])
+
+                return batches()
+
+        class UncachedClient:
+            def get_service(self, name):
+                return EphemeralService()
+
+        self.assertEqual(
+            self.n._rows(UncachedClient(), "1234567890", "query"), ["row"]
         )
 
     def test_campaign_preview_validates_without_creating(self):
