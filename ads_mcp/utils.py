@@ -43,8 +43,8 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # OAuth scope for the Google Ads API. Google Ads does not publish a separate
-# read-only scope; access is restricted to read methods by the tools this
-# server exposes (see ads_mcp/tools/).
+# read-only scope. Negative keyword writes are separately gated by the
+# interactive tools and deployment configuration (see ads_mcp/tools/negatives.py).
 _ADS_SCOPE = "https://www.googleapis.com/auth/adwords"
 
 
@@ -75,7 +75,9 @@ def _create_credentials() -> google.auth.credentials.Credentials:
     service_values = {
         "refresh_token": os.environ.get("GOOGLE_ADS_SERVICE_REFRESH_TOKEN"),
         "client_id": os.environ.get("GOOGLE_ADS_SERVICE_OAUTH_CLIENT_ID"),
-        "client_secret": os.environ.get("GOOGLE_ADS_SERVICE_OAUTH_CLIENT_SECRET"),
+        "client_secret": os.environ.get(
+            "GOOGLE_ADS_SERVICE_OAUTH_CLIENT_SECRET"
+        ),
     }
     configured = [bool(value) for value in service_values.values()]
     if any(configured) and not all(configured):

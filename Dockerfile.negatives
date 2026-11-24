@@ -1,0 +1,8 @@
+# Add only these tools to the verified production image, preserving the
+# November OAuth repair, installed dependencies, and log redaction.
+ARG BASE_IMAGE=us-central1-docker.pkg.dev/durable-stack-502219-q0/cloud-run-source-deploy/google-ads-mcp@sha256:e0ec1ce5974f51241abef53415861265e69a1ded489ed272d755417fc388606b
+FROM ${BASE_IMAGE}
+COPY ads_mcp/tools/negatives.py /app/ads_mcp/tools/negatives.py
+COPY ads_mcp/tools/negatives.py /usr/local/lib/python3.11/site-packages/ads_mcp/tools/negatives.py
+COPY ads_mcp/tools_config.yaml /app/ads_mcp/tools_config.yaml
+COPY ads_mcp/tools_config.yaml /usr/local/lib/python3.11/site-packages/ads_mcp/tools_config.yaml

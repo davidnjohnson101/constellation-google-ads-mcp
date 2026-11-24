@@ -17,6 +17,10 @@ to provide several
 - `get_resource_metadata`: Retrieves metadata about a Google Ads API resource type, for example "campaign". This is useful to understand the structure of the data and what fields are available for querying.
 - `list_accessible_customers`: Returns ids of customers directly accessible
   by the user authenticating the call.
+- `preview_add_negative_keywords` and `apply_add_negative_keywords`: Preview,
+  validate, explicitly approve, add, and verify direct campaign/ad-group
+  negative keywords. Disabled until deployment gates are configured; existing
+  workers remain read only. See [negative keyword writes](docs/negative-keywords.md).
 - `publish_recommendation`: Publishes a validated, evidence-backed proposal to
   the Constellation Google Ads Recommendation Center. This action never writes
   to Google Ads and never approves or executes a recommendation.

@@ -1,4 +1,5 @@
 namespaces:
+  negatives: false
   customers: false
   metadata:
     enabled: true
